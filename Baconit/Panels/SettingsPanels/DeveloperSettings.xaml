@@ -4,11 +4,11 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:local="using:Baconit.Panels.SettingsPanels"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             d:DesignHeight="300"
+             d:DesignHeight="800"
              d:DesignWidth="400"
              mc:Ignorable="d">
 
-    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+    <Grid x:Name="ui_contentRoot" Background="#333333">
         <Grid.RowDefinitions>
             <RowDefinition Height="auto" />
             <RowDefinition Height="*" />
@@ -24,9 +24,30 @@
                        Text="DEVELOPER SETTINGS" />
         </StackPanel>
 
-        <StackPanel Grid.Row="1" Margin="12">
+        <StackPanel Grid.Row="1"
+                    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+                    Padding="12">
             <TextBlock Text="Verbose debugging. To the average user this will pop up a lot of useless dialog boxes." TextWrapping="Wrap" />
             <ToggleSwitch x:Name="ui_debuggingOn" Toggled="DebuggingOn_Toggled" />
+            <TextBlock Margin="0,12,0,0"
+                       Text="Don't let fatal exceptions kill the app, report the exception instead of crashing. (this will leave your app in an unstable state)"
+                       TextWrapping="Wrap" />
+            <ToggleSwitch x:Name="ui_preventAppCrashes" Toggled="PreventAppCrashes_Toggled" />
+            <TextBlock Margin="0,12,0,0"
+                       Text="Show app memory overlay"
+                       TextWrapping="Wrap" />
+            <ToggleSwitch x:Name="ui_showMemoryOverlay" Toggled="ShowMemoryOverlay_Toggled" />
+
+            <Button Margin="0,12,0,12"
+                    Click="RateAndReviewReset_Click"
+                    Content="Reset rate and review counter" />
+
+            <TextBlock x:Name="ui_numberPagesCleanedUp"
+                       Margin="0,12,0,0"
+                       Text="Pages cleaned up for memory pressure: 0"
+                       TextWrapping="Wrap" />
+
+
         </StackPanel>
     </Grid>
 </UserControl>

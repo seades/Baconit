@@ -16,55 +16,156 @@ using Windows.UI.Xaml.Media.Imaging;
 
 namespace BaconBackend.Helpers
 {
+    /// <summary>
+    /// The type of content that a link points toward.
+    /// </summary>
     public enum RedditContentType
     {
+        /// <summary>
+        /// A subreddit.
+        /// </summary>
         Subreddit,
+        /// <summary>
+        /// A post within a subreddit.
+        /// </summary>
         Post,
+        /// <summary>
+        /// A comment on a reddit post.
+        /// </summary>
         Comment,
+        /// <summary>
+        /// A user.
+        /// </summary>
+        User,
+        /// <summary>
+        /// A URL linking somewhere other than reddit.
+        /// </summary>
         Website
     }
 
+    /// <summary>
+    /// Content that a link posted on reddit links to.
+    /// </summary>
     public class RedditContentContainer
     {
+        /// <summary>
+        /// This content's content type.
+        /// </summary>
         public RedditContentType Type;
+        /// <summary>
+        /// The webpage this content links to, if the type is a website.
+        /// </summary>
         public string Website;
+        /// <summary>
+        /// The subreddit this content links to, if the type is a subreddit.
+        /// </summary>
         public string Subreddit;
+        /// <summary>
+        /// The user this content links to, if the type is a user.
+        /// </summary>
+        public string User;
+        /// <summary>
+        /// The post this content links to, if the type is a reddit post
+        /// </summary>
         public string Post;
+        /// <summary>
+        /// The comment this content links to, if the type is a reddit comment.
+        /// </summary>
         public string Comment;
     }
 
-    public enum SubmiteNewPostErrors
+    /// <summary>
+    /// Error type that occurs when posting a new reddit post.
+    /// </summary>
+    public enum SubmitNewPostErrors
     {
+        /// <summary>
+        /// No error occurred.
+        /// </summary>
         NONE,
+        /// <summary>
+        /// An unknown error occurred.
+        /// </summary>
         UNKNOWN,
+        /// <summary>
+        /// The request specified an option that doesn't exist.
+        /// </summary>
         INVALID_OPTION,
+        /// <summary>
+        /// A Captcha is required to submit the post, and it was submitted incorrectly.
+        /// </summary>
         BAD_CAPTCHA,
+        /// <summary>
+        /// The URL linked to in the submitted post is invalid.
+        /// </summary>
         BAD_URL,
+        /// <summary>
+        /// The subreddit posted to does not exist.
+        /// </summary>
         SUBREDDIT_NOEXIST,
+        /// <summary>
+        /// The subreddit posted to does not allow the logged in user to make this post.
+        /// </summary>
         SUBREDDIT_NOTALLOWED,
+        /// <summary>
+        /// No subreddit was specified when posting.
+        /// </summary>
         SUBREDDIT_REQUIRED,
+        /// <summary>
+        /// The subreddit posted to does not allow the logged in user to make this self-text post.
+        /// </summary>
         NO_SELFS,
+        /// <summary>
+        /// The subreddit posted to does not allow the logged in user to make this link post.
+        /// </summary>
         NO_LINKS,
+        /// <summary>
+        /// The post attempt timed out, and failed to complete.
+        /// </summary>
         IN_TIMEOUT,
+        /// <summary>
+        /// Reddit disallows the app to post this cpntent, as it has exceeded the reddit API rate limit.
+        /// </summary>
         RATELIMIT,
+        /// <summary>
+        /// The subreddit posted to does not allow links to be posted to the domain this post linked to.
+        /// </summary>
         DOMAIN_BANNED,
+        /// <summary>
+        /// The subreddit posted to does not allow links to be resubmitted, and this post has already been posted.
+        /// </summary>
         ALREADY_SUB
     }
 
+    /// <summary>
+    /// A response from reddit when a new post is submitted.
+    /// </summary>
     public class SubmitNewPostResponse
     {
+        /// <summary>
+        /// Whether the post was successfully posted.
+        /// </summary>
         public bool Success = false;
+        /// <summary>
+        /// A link to the post that was successfully created, or the empty string if no post was created.
+        /// </summary>
         public string NewPostLink = String.Empty;
-        public SubmiteNewPostErrors RedditError = SubmiteNewPostErrors.NONE;
+        /// <summary>
+        /// The error type that occurred when posting, or NONE if no error occurred.
+        /// </summary>
+        public SubmitNewPostErrors RedditError = SubmitNewPostErrors.NONE;
     }
 
+    /// <summary>
+    /// Miscellaneous static helper methods.
+    /// </summary>
     public class MiscellaneousHelper
     {
         /// <summary>
         /// Called when the user is trying to comment on something.
         /// </summary>
         /// <returns>Returns the json returned or a null string if failed.</returns>
-        public static async Task<string> SendRedditComment(BaconManager baconMan, string redditIdCommentingOn, string comment)
+        public static async Task<string> SendRedditComment(BaconManager baconMan, string redditIdCommentingOn, string comment, bool isEdit = false)
         {
             string returnString = null;
             try
@@ -74,8 +175,10 @@ namespace BaconBackend.Helpers
                 postData.Add(new KeyValuePair<string, string>("thing_id", redditIdCommentingOn));
                 postData.Add(new KeyValuePair<string, string>("text", comment));
 
+                string apiString = isEdit ? "api/editusertext" : "api/comment";
+
                 // Make the call
-                returnString = await baconMan.NetworkMan.MakeRedditPostRequest("api/comment", postData);
+                returnString = await baconMan.NetworkMan.MakeRedditPostRequestAsString(apiString, postData);
             }
             catch (Exception e)
             {
@@ -83,7 +186,7 @@ namespace BaconBackend.Helpers
                 baconMan.MessageMan.DebugDia("failed to send message", e);
             }
             return returnString;
-        }
+        }      
 
         /// <summary>
         /// Gets a reddit user.
@@ -95,7 +198,7 @@ namespace BaconBackend.Helpers
             try
             {
                 // Make the call
-                string jsonResponse = await baconMan.NetworkMan.MakeRedditGetRequest($"user/{userName}/about/.json");
+                string jsonResponse = await baconMan.NetworkMan.MakeRedditGetRequestAsString($"user/{userName}/about/.json");
 
                 // Try to parse out the user
                 int dataPos = jsonResponse.IndexOf("\"data\":");
@@ -116,6 +219,37 @@ namespace BaconBackend.Helpers
                 baconMan.MessageMan.DebugDia("failed to search for user", e);
             }
             return foundUser;
+        }
+
+        /// <summary>
+        /// Attempts to delete a post.
+        /// </summary>
+        /// <param name="baconMan"></param>
+        /// <param name="postId"></param>
+        /// <returns></returns>
+        public static async Task<bool> DeletePost(BaconManager baconMan, string postId)
+        {
+            string returnString = null;
+            try
+            {
+                // Build the data to send
+                List<KeyValuePair<string, string>> postData = new List<KeyValuePair<string, string>>();
+                postData.Add(new KeyValuePair<string, string>("id", "t3_"+postId));   
+
+                // Make the call
+                returnString = await baconMan.NetworkMan.MakeRedditPostRequestAsString("api/del", postData);
+
+                if(returnString.Equals("{}"))
+                {
+                    return true;
+                }
+            }
+            catch (Exception e)
+            {
+                baconMan.TelemetryMan.ReportUnExpectedEvent("MisHelper", "failed to delete post", e);
+                baconMan.MessageMan.DebugDia("failed to delete post", e);
+            }
+            return false;
         }
 
         /// <summary>
@@ -152,7 +286,7 @@ namespace BaconBackend.Helpers
                 }
 
                 // Make the call
-                string jsonResponse = await baconMan.NetworkMan.MakeRedditPostRequest(url, data);
+                string jsonResponse = await baconMan.NetworkMan.MakeRedditPostRequestAsString(url, data);
 
                 if(jsonResponse.Contains("{}"))
                 {
@@ -201,7 +335,7 @@ namespace BaconBackend.Helpers
                 data.Add(new KeyValuePair<string, string>("title", title));
 
                 // Make the call
-                string jsonResponse = await baconMan.NetworkMan.MakeRedditPostRequest("/api/submit/", data);
+                string jsonResponse = await baconMan.NetworkMan.MakeRedditPostRequestAsString("/api/submit/", data);
 
                 // Try to see if we can find the word redirect and if we can find the subreddit url
                 string responseLower = jsonResponse.ToLower();
@@ -229,20 +363,20 @@ namespace BaconBackend.Helpers
                 else
                 {
                     // We have a reddit error. Try to figure out what it is.
-                    for(int i = 0; i < Enum.GetNames(typeof(SubmiteNewPostErrors)).Length; i++)
+                    for(int i = 0; i < Enum.GetNames(typeof(SubmitNewPostErrors)).Length; i++)
                     {
-                        string enumName = Enum.GetName(typeof(SubmiteNewPostErrors), i).ToLower(); ;
+                        string enumName = Enum.GetName(typeof(SubmitNewPostErrors), i).ToLower(); ;
                         if (responseLower.Contains(enumName))
                         {
                             baconMan.TelemetryMan.ReportUnExpectedEvent("MisHelper", "failed to submit post; error: "+ enumName);
                             baconMan.MessageMan.DebugDia("failed to submit post; error: "+ enumName);
-                            return new SubmitNewPostResponse() { Success = false, RedditError = (SubmiteNewPostErrors)i};
+                            return new SubmitNewPostResponse() { Success = false, RedditError = (SubmitNewPostErrors)i};
                         }
                     }
 
                     baconMan.TelemetryMan.ReportUnExpectedEvent("MisHelper", "failed to submit post; unknown reddit error: ");
                     baconMan.MessageMan.DebugDia("failed to submit post; unknown reddit error");
-                    return new SubmitNewPostResponse() { Success = false, RedditError = SubmiteNewPostErrors.UNKNOWN };
+                    return new SubmitNewPostResponse() { Success = false, RedditError = SubmitNewPostErrors.UNKNOWN };
                 }
             }
             catch (Exception e)
@@ -288,21 +422,21 @@ namespace BaconBackend.Helpers
         /// <summary>
         /// Attempts to parse out a reddit object from a reddit data object.
         /// </summary>
-        /// <param name="orgionalJson"></param>
+        /// <param name="originalJson"></param>
         /// <returns></returns>
-        public static string ParseOutRedditDataElement(string orgionalJson)
+        public static string ParseOutRedditDataElement(string originalJson)
         {
             try
             {
                 // Try to parse out the object
-                int dataPos = orgionalJson.IndexOf("\"data\":");
+                int dataPos = originalJson.IndexOf("\"data\":");
                 if (dataPos == -1) return null;
-                int dataStartPos = orgionalJson.IndexOf('{', dataPos + 7);
+                int dataStartPos = originalJson.IndexOf('{', dataPos + 7);
                 if (dataPos == -1) return null;
-                int dataEndPos = orgionalJson.IndexOf("}", dataStartPos);
-                if (dataPos == -1) return null;
-
-                return orgionalJson.Substring(dataStartPos, (dataEndPos - dataStartPos + 1));
+                // "data" is a property of the initial object, so the substring
+                // for "data" should not have the } that closes the initial Json.
+                // The } of the original object is always the last character.
+                return originalJson.Substring(dataStartPos, (originalJson.Length - dataStartPos - 1));
             }
             catch(Exception)
             {
@@ -357,6 +491,44 @@ namespace BaconBackend.Helpers
                     {
                         Type = RedditContentType.Subreddit,
                         Subreddit = displayName
+                    };
+                }
+            }
+            // Try to find /u/ or u/ links
+            if (urlLower.StartsWith("/u/") || urlLower.StartsWith("u/"))
+            {
+                // Get the display name
+                int userStart = urlLower.IndexOf("u/");
+                userStart += 2;
+
+                // Try to find the next / after the subreddit if it exists
+                int subEnd = urlLower.IndexOf("/", userStart);
+                if (subEnd == -1)
+                {
+                    subEnd = urlLower.Length;
+                }
+
+                // Get the name.
+                string displayName = urlLower.Substring(userStart, subEnd - userStart).Trim();
+
+                // Make sure we don't have trailing arguments other than a /, if we do we should handle this as we content.
+                string trimedLowerUrl = urlLower.TrimEnd();
+                if (trimedLowerUrl.Length - subEnd > 1)
+                {
+                    // Make a web link for this
+                    containter = new RedditContentContainer()
+                    {
+                        Type = RedditContentType.Website,
+                        Website = $"https://reddit.com/{url}"
+                    };
+                }
+                else
+                {
+                    // We are good, make the user link.
+                    containter = new RedditContentContainer()
+                    {
+                        Type = RedditContentType.User,
+                        User = displayName
                     };
                 }
             }
@@ -442,6 +614,11 @@ namespace BaconBackend.Helpers
             return nextBreak;
         }
 
+        /// <summary>
+        /// Gets the complementary color of the one given.
+        /// </summary>
+        /// <param name="source">The color to find the complement of.</param>
+        /// <returns>The complement to the input color.</returns>
         public static Color GetComplementaryColor(Color source)
         {
             Color inputColor = source;

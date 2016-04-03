@@ -2,7 +2,10 @@
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading.Tasks;
+using Windows.Storage.Streams;
+using Windows.Web.Http;
 
 namespace BaconBackend.Helpers
 {
@@ -11,9 +14,15 @@ namespace BaconBackend.Helpers
     /// </summary>
     public class Element<Et>
     {
+        /// <summary>
+        /// Reddit item.
+        /// </summary>
         [JsonProperty(PropertyName = "data")]
         public Et Data;
 
+        /// <summary>
+        /// Type prefix of Data's object type.
+        /// </summary>
         [JsonProperty(PropertyName = "kind")]
         public string Kind;
     }
@@ -23,12 +32,22 @@ namespace BaconBackend.Helpers
     /// </summary>
     public class ElementList<Et>
     {
+        /// <summary>
+        /// List of elements.
+        /// </summary>
         [JsonProperty(PropertyName = "children")]
         public List<Element<Et>> Children;
 
+        /// <summary>
+        /// The fullname of the last element in the list, or null if this is the end of the list.
+        /// </summary>
         [JsonProperty(PropertyName = "after")]
         public string After = null;
 
+        /// <summary>
+        /// The fullname of the first element in the list, or null if there are no elements
+        /// earlier in this list.
+        /// </summary>
         [JsonProperty(PropertyName = "before")]
         public string Before = null;
     }
@@ -38,9 +57,15 @@ namespace BaconBackend.Helpers
     /// </summary>
     public class RootElement<Et>
     {
+        /// <summary>
+        /// List of elements.
+        /// </summary>
         [JsonProperty(PropertyName = "data")]
         public ElementList<Et> Data;
 
+        /// <summary>
+        /// Type prefix of the objects in the Data list.
+        /// </summary>
         [JsonProperty(PropertyName = "kind")]
         public string Kind;
     }
@@ -50,6 +75,9 @@ namespace BaconBackend.Helpers
     /// </summary>
     public class ArrayRoot<Et>
     {
+        /// <summary>
+        /// List of all the elements under the root.
+        /// </summary>
         [JsonProperty(PropertyName = "root")]
         public List<RootElement<Et>> Root;
     }
@@ -72,23 +100,31 @@ namespace BaconBackend.Helpers
         ElementList<T> m_currentElementList = new ElementList<T>();
 
         /// <summary>
-        /// This is interesting. For comments the json returned has a nameless json array in the beginning.
-        /// Json.net can't handle it, so we must fix it up ourselves.
+        /// Indicates if the root of this object is an array, if so we will treat it as a list.
         /// </summary>
-        bool m_hasEmptyArrayRoot = false;
+        bool m_isArrayRoot = false;
 
         /// <summary>
         /// If we are creating an empty root as above, this tells us which element in the created root to use.
         /// </summary>
         bool m_takeFirstArrayRoot = false;
 
-        public RedditListHelper(string baseUrl, NetworkManager netMan, bool hasEmptyArrayRoot = false, bool takeFirstArrayRoot = false, string optionalGetArgs = "")
+        /// <summary>
+        /// Create a new object to help build reddit lists.
+        /// </summary>
+        /// <param name="baseUrl">The URL with the information to populate this list.</param>
+        /// <param name="netMan">An object to help make web requests.</param>
+        /// <param name="isArrayRoot">If the object returned from reddit will have no root element 
+        /// (and will therefore need modification to be correct JSON).</param>
+        /// <param name="takeFirstArrayRoot">If the first child under the root is the one with the data (rather than the second child).</param>
+        /// <param name="optionalGetArgs">Additional GET arguments to send when making the request to populate this list.</param>
+        public RedditListHelper(string baseUrl, NetworkManager netMan, bool isArrayRoot = false, bool takeFirstArrayRoot = false, string optionalGetArgs = "")
         {
             m_baseUrl = baseUrl;
             m_optionalGetArgs = optionalGetArgs;
             m_currentElementList.Children = new List<Element<T>>();
             m_networkMan = netMan;
-            m_hasEmptyArrayRoot = hasEmptyArrayRoot;
+            m_isArrayRoot = isArrayRoot;
             m_takeFirstArrayRoot = takeFirstArrayRoot;
         }
 
@@ -111,7 +147,7 @@ namespace BaconBackend.Helpers
         /// THIS IS NOT THREAD SAFE
         /// </summary>
         /// <param name="bottom">The bottom range, inclusive</param>
-        /// <param name="top">Teh top of the range, exclusive</param>
+        /// <param name="top">The top of the range, exclusive</param>
         /// <returns></returns>
         public async Task<List<Element<T>>> FetchElements(int bottom, int top)
         {
@@ -120,16 +156,16 @@ namespace BaconBackend.Helpers
                 throw new Exception("top can't be larger than bottom!");
             }
 
-            int santyCheckCount = 0;
+            int sanityCheckCount = 0;
             while (true)
             {
                 // See if we now have what they asked for, OR the list has elements but we don't have an after.
                 // (this is the case when we have hit the end of the list)
-                // #bug!?!? At some point I changed the children count in the after check to santyCheckCount == 0, but I can't remember why
+                // #bug!?!? At some point I changed the children count in the after check to sanityCheckCount == 0, but I can't remember why
                 // and it breaks lists that have ends. There is some bug where something doesn't try to refresh or something...
                 if (m_currentElementList.Children.Count >= top
                     || (m_currentElementList.Children.Count != 0 && m_currentElementList.After == null)
-                    || (santyCheckCount > 25))
+                    || (sanityCheckCount > 25))
                 {
                     // Return what they asked for capped at the list size
                     int length = top - bottom;
@@ -145,41 +181,50 @@ namespace BaconBackend.Helpers
                 int numberNeeded = top - m_currentElementList.Children.Count;
 
                 // Make the request.
-                string webResult = await MakeRequest(numberNeeded, m_currentElementList.After);
+                IHttpContent webResult = await MakeRequest(numberNeeded, m_currentElementList.After);
 
+                // This will hold the root
                 RootElement<T> root = null;
 
-                // Special case, see the comment on the bool var
-                if (m_hasEmptyArrayRoot)
+                // Get the input stream and json reader.
+                // NOTE!! We are really careful not to use a string here so we don't have to allocate a huge string.
+                IInputStream inputStream = await webResult.ReadAsInputStreamAsync();
+                using (StreamReader reader = new StreamReader(inputStream.AsStreamForRead()))
+                using (JsonReader jsonReader = new JsonTextReader(reader))
                 {
-                    // Fix up the json returned.
-                    string namedRootJson = "{\"root\": " + webResult + "}";
-                    ArrayRoot<T> arrayRoot = await Task.Run(() => JsonConvert.DeserializeObject<ArrayRoot<T>>(namedRootJson));
-
-                    if(m_takeFirstArrayRoot)
+                    // Check if we have an array root or a object root
+                    if (m_isArrayRoot)
                     {
-                        // Used for forcing a post to load in flipview.
-                        root = arrayRoot.Root[0];
+                        // Parse the Json as an object
+                        JsonSerializer serializer = new JsonSerializer();
+                        List<RootElement<T>> arrayRoot = await Task.Run(() => serializer.Deserialize<List<RootElement<T>>>(jsonReader));
+
+                        // Use which ever list element we want.
+                        if (m_takeFirstArrayRoot)
+                        {
+                            root = arrayRoot[0];
+                        }
+                        else
+                        {
+                            root = arrayRoot[1];
+                        }
                     }
                     else
                     {
-                        // Used for comments to ignore the post header
-                        root = arrayRoot.Root[1];
+                        // Parse the Json as an object
+                        JsonSerializer serializer = new JsonSerializer();
+                        root = await Task.Run(() => serializer.Deserialize<RootElement<T>>(jsonReader));
                     }
                 }
-                else
-                {
-                    // Parse the Json
-                    root = await Task.Run(() => JsonConvert.DeserializeObject<RootElement<T>>(webResult));
-                }
 
+             
                 // Copy the new contents into the current cache
                 m_currentElementList.Children.AddRange(root.Data.Children);
 
                 // Update the before and after
                 m_currentElementList.After = root.Data.After;
                 m_currentElementList.Before = root.Data.Before;
-                santyCheckCount++;
+                sanityCheckCount++;
             }
         }
 
@@ -213,13 +258,11 @@ namespace BaconBackend.Helpers
             m_currentElementList.Children.Clear();
         }
 
-        private async Task<string> MakeRequest(int limit, string after)
+        private async Task<IHttpContent> MakeRequest(int limit, string after)
         {
             string optionalEnding = String.IsNullOrWhiteSpace(m_optionalGetArgs) ? String.Empty : "&"+ m_optionalGetArgs;
             string url = m_baseUrl + $"?limit={limit}" + (String.IsNullOrWhiteSpace(after) ? "" : $"&after={after}") + optionalEnding;
             return await m_networkMan.MakeRedditGetRequest(url);
         }
-
-
     }
 }

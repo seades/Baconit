@@ -1,6 +1,7 @@
 ﻿using BaconBackend.DataObjects;
 using BaconBackend.Helpers;
 using BaconBackend.Managers;
+using Baconit.HelperControls;
 using Baconit.Interfaces;
 using System;
 using System.Collections.Generic;
@@ -86,7 +87,7 @@ namespace Baconit.Panels
             await SaveDraft();
         }
 
-        public void OnNavigatingTo()
+        public async void OnNavigatingTo()
         {
             m_isVisible = true;
 
@@ -96,14 +97,31 @@ namespace Baconit.Panels
             // If we have a draft and we don't have data in the UI ask the user if they
             // want to restore.
             CheckForAndPromptForDraft();
+
+            // Set the status bar color and get the size returned. If it is not 0 use that to move the
+            // color of the page into the status bar.
+            double statusBarHeight = await m_host.SetStatusBar(null, 0);
+            ui_contentRoot.Margin = new Thickness(0, -statusBarHeight, 0, 0);
+            ui_contentRoot.Padding = new Thickness(0, statusBarHeight, 0, 0);
         }
 
         public void OnPanelPulledToTop(Dictionary<string, object> arguments)
         {
-            m_isVisible = true;
+            OnNavigatingTo();
+        }
 
-            // Start the draft timer
-            m_draftTimer.Start();
+        public void OnCleanupPanel()
+        {
+            // Ignore for now.
+        }
+
+        /// <summary>
+        /// Fired when the panel should try to reduce memory if possible. This will only be called
+        /// while the panel isn't visible.
+        /// </summary>
+        public void OnReduceMemory()
+        {
+            // Ignore for now.
         }
 
         #region Selftext
@@ -210,83 +228,8 @@ namespace Baconit.Panels
         /// <param name="e"></param>
         private void RedditMarkdownVisualHelper_OnHelperTapped(object sender, HelperControls.OnHelperTappedArgs e)
         {
-            int selStart = ui_postUrlTextBox.SelectionStart;
-            int selLength = ui_postUrlTextBox.SelectionLength;
-            string curText = ui_postUrlTextBox.Text;
-            string insertNewLine = null;
-
-            // Depending on the type see what we can do.
-            switch (e.Type)
-            {
-                case HelperControls.VisualHelperTypes.Bold:
-                    if(selLength != 0)
-                    {
-                        // Wrap the selected text
-                        ui_postUrlTextBox.Text = curText.Insert(selStart + selLength, "**").Insert(selStart, "**");
-                    }
-                    else
-                    {
-                        // Or add to the end
-                        ui_postUrlTextBox.Text = curText + " **example**";
-                    }
-                    break;
-                case HelperControls.VisualHelperTypes.Italic:
-                    if (selLength != 0)
-                    {
-                        // Wrap the selected text
-                        ui_postUrlTextBox.Text = curText.Insert(selStart + selLength, "*").Insert(selStart, "*");
-                    }
-                    else
-                    {
-                        // Or add to the end
-                        ui_postUrlTextBox.Text = curText + " *example*";
-                    }
-                    break;
-                case HelperControls.VisualHelperTypes.Link:
-                    if (selLength != 0)
-                    {
-                        // Wrap the selected text
-                        ui_postUrlTextBox.Text = curText.Insert(selStart + selLength, ")[http://www.example.com]").Insert(selStart, "{");
-                    }
-                    else
-                    {
-                        // Or add to the end
-                        ui_postUrlTextBox.Text = curText + " [example](http://www.example.com)";
-                    }
-                    break;
-                case HelperControls.VisualHelperTypes.NewLine:
-                    int injectPos = selStart;
-                    // Inject the new line at the current pos
-                    ui_postUrlTextBox.Text = curText.Insert(injectPos, "  \r\n");
-                    // Move the selection to the end of insert
-                    ui_postUrlTextBox.SelectionStart = injectPos + 3;
-                    break;
-                case HelperControls.VisualHelperTypes.Quote:
-                    insertNewLine = "> ";
-                    break;
-                case HelperControls.VisualHelperTypes.List:
-                    insertNewLine = "* ";
-                    break;
-                case HelperControls.VisualHelperTypes.NumberedList:
-                    insertNewLine = "1. ";
-                    break;
-                case HelperControls.VisualHelperTypes.Code:
-                    insertNewLine = "    ";
-                    break;
-               
-            }
-
-            // If the insert on new line is not null we need to find the last new line and
-            // insert the text.
-            if(insertNewLine != null)
-            {
-                int searchStart = selStart == curText.Length ? selStart - 1 : selStart;
-                int indexLastNewLine = curText.LastIndexOf('\n', searchStart);
-                ui_postUrlTextBox.Text = curText.Insert(indexLastNewLine + 1, insertNewLine);
-            }
-
-            // When we leave focus the text box again so we don't press enter on the key again
-            ui_postUrlTextBox.Focus(FocusState.Programmatic);
+            // Do the edit.
+            RedditMarkdownVisualHelper.DoEdit(ui_postUrlTextBox, e.Type);
         }
 
         /// <summary>
@@ -385,10 +328,9 @@ namespace Baconit.Panels
                 App.BaconMan.MessageMan.ShowMessageSimple("Say Something...", "You can't submit a post with out a title.");
                 return;
             }
-            if (String.IsNullOrWhiteSpace(urlOrMarkdownText))
+            if (String.IsNullOrWhiteSpace(urlOrMarkdownText) && !isSelfText)
             {
-                string type = isSelfText ? "text" : "link";
-                App.BaconMan.MessageMan.ShowMessageSimple("Say Something...", $"You can't submit a post with no {type}.");
+                App.BaconMan.MessageMan.ShowMessageSimple("Say Something...", $"You can't submit a post with no link.");
                 return;
             }
             if(!isSelfText && urlOrMarkdownText.IndexOf(' ') != -1)
@@ -433,37 +375,37 @@ namespace Baconit.Panels
 
                 switch(response.RedditError)
                 {
-                    case SubmiteNewPostErrors.ALREADY_SUB:
+                    case SubmitNewPostErrors.ALREADY_SUB:
                         message = "That link has already been submitted";
                         break;
-                    case SubmiteNewPostErrors.BAD_CAPTCHA:
+                    case SubmitNewPostErrors.BAD_CAPTCHA:
                         message = "You need to provide a CAPTCHA to post. Baconit currently doesn't support CAPTCHA so you will have to post this from your desktop. After a few post try from Baconit again. Sorry about that.";
                         break;
-                    case SubmiteNewPostErrors.DOMAIN_BANNED:
+                    case SubmitNewPostErrors.DOMAIN_BANNED:
                         message = "The domain of this link has been banned for spam.";
                         break;
-                    case SubmiteNewPostErrors.IN_TIMEOUT:
-                    case SubmiteNewPostErrors.RATELIMIT:
+                    case SubmitNewPostErrors.IN_TIMEOUT:
+                    case SubmitNewPostErrors.RATELIMIT:
                         message = "You have posted too much recently, please wait a while before posting again.";
                         break;
-                    case SubmiteNewPostErrors.NO_LINKS:
+                    case SubmitNewPostErrors.NO_LINKS:
                         message = "This subreddit only allows self text, you can't post links to it.";
                         break;
-                    case SubmiteNewPostErrors.NO_SELFS:
+                    case SubmitNewPostErrors.NO_SELFS:
                         message = "This subreddit only allows links, you can't post self text to it.";
                         break;
-                    case SubmiteNewPostErrors.SUBREDDIT_NOEXIST:
+                    case SubmitNewPostErrors.SUBREDDIT_NOEXIST:
                         message = "The subreddit your trying to post to doesn't exist.";
                         break;
-                    case SubmiteNewPostErrors.SUBREDDIT_NOTALLOWED:
+                    case SubmitNewPostErrors.SUBREDDIT_NOTALLOWED:
                         message = "Your not allowed to post to the subreddit you selected.";
                         break;
-                    case SubmiteNewPostErrors.BAD_URL:
+                    case SubmitNewPostErrors.BAD_URL:
                         message = "Your URL is invalid, please make sure it is correct.";
                         break;
                     default:
-                    case SubmiteNewPostErrors.INVALID_OPTION:
-                    case SubmiteNewPostErrors.SUBREDDIT_REQUIRED:
+                    case SubmitNewPostErrors.INVALID_OPTION:
+                    case SubmitNewPostErrors.SUBREDDIT_REQUIRED:
                         title = "Something Went Wrong";
                         message = "We can't post for you right now, check your Internet connection.";
                         break;
@@ -510,7 +452,7 @@ namespace Baconit.Panels
         private async void PrmoptUserForBackout()
         {
             // Make a message to show the user
-            bool? saveChanges = null;            
+            bool? saveChanges = null;
             MessageDialog message = new MessageDialog("It looks like you have a post in progress, what would you like to do with it? If you save a draft you can come back an pick up at anytime.", "Leaving So Fast?");
             message.Commands.Add(new UICommand(
                 "Save a Draft",
@@ -592,7 +534,7 @@ namespace Baconit.Panels
             if(success)
             {
                 ui_lastDraftSaveTime.Text = "Saved at " + DateTime.Now.ToString("hh:mm:ss");
-            }           
+            }
         }
 
         /// <summary>
@@ -642,7 +584,7 @@ namespace Baconit.Panels
                         {
                             IsSelfPostCheckBox_Click(null, null);
                         }
-                    }              
+                    }
                 }
                 else
                 {

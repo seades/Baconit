@@ -1,4 +1,5 @@
-﻿using System;
+﻿using BaconBackend.Collectors;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -76,9 +77,9 @@ namespace BaconBackend.Managers
             {
                 if (!m_developer_Debug.HasValue)
                 {
-                    if (m_baconMan.SettingsMan.RoamingSettings.ContainsKey("Developer_Debug"))
+                    if (m_baconMan.SettingsMan.RoamingSettings.ContainsKey("UiSettingManager.Developer_Debug"))
                     {
-                        m_developer_Debug = m_baconMan.SettingsMan.ReadFromRoamingSettings<bool>("Developer_Debug");
+                        m_developer_Debug = m_baconMan.SettingsMan.ReadFromRoamingSettings<bool>("UiSettingManager.Developer_Debug");
                     }
                     else
                     {
@@ -90,10 +91,66 @@ namespace BaconBackend.Managers
             set
             {
                 m_developer_Debug = value;
-                m_baconMan.SettingsMan.WriteToRoamingSettings<bool>("Developer_Debug", m_developer_Debug.Value);
+                m_baconMan.SettingsMan.WriteToRoamingSettings<bool>("UiSettingManager.Developer_Debug", m_developer_Debug.Value);
             }
         }
         private bool? m_developer_Debug = null;
+
+        /// <summary>
+        /// If the app will prevent crashing and report any fatal errors.
+        /// </summary>
+        public bool Developer_StopFatalCrashesAndReport
+        {
+            get
+            {
+                if (!m_developer_StopFatalCrashesAndReport.HasValue)
+                {
+                    if (m_baconMan.SettingsMan.RoamingSettings.ContainsKey("UiSettingManager.Developer_StopFatalCrashesAndReport"))
+                    {
+                        m_developer_StopFatalCrashesAndReport = m_baconMan.SettingsMan.ReadFromRoamingSettings<bool>("UiSettingManager.Developer_StopFatalCrashesAndReport");
+                    }
+                    else
+                    {
+                        m_developer_StopFatalCrashesAndReport = false;
+                    }
+                }
+                return m_developer_StopFatalCrashesAndReport.Value;
+            }
+            set
+            {
+                m_developer_StopFatalCrashesAndReport = value;
+                m_baconMan.SettingsMan.WriteToRoamingSettings<bool>("UiSettingManager.Developer_StopFatalCrashesAndReport", m_developer_StopFatalCrashesAndReport.Value);
+            }
+        }
+        private bool? m_developer_StopFatalCrashesAndReport = null;
+
+        /// <summary>
+        /// Shows a memory overlay for the app.
+        /// </summary>
+        public bool Developer_ShowMemoryOverlay
+        {
+            get
+            {
+                if (!m_developer_ShowMemoryOverlay.HasValue)
+                {
+                    if (m_baconMan.SettingsMan.RoamingSettings.ContainsKey("UiSettingManager.Developer_ShowMemoryOverlay"))
+                    {
+                        m_developer_ShowMemoryOverlay = m_baconMan.SettingsMan.ReadFromRoamingSettings<bool>("UiSettingManager.Developer_ShowMemoryOverlay");
+                    }
+                    else
+                    {
+                        m_developer_ShowMemoryOverlay = false;
+                    }
+                }
+                return m_developer_ShowMemoryOverlay.Value;
+            }
+            set
+            {
+                m_developer_ShowMemoryOverlay = value;
+                m_baconMan.SettingsMan.WriteToRoamingSettings<bool>("UiSettingManager.Developer_ShowMemoryOverlay", m_developer_ShowMemoryOverlay.Value);
+            }
+        }
+        private bool? m_developer_ShowMemoryOverlay = null;
 
         #endregion
 
@@ -160,6 +217,62 @@ namespace BaconBackend.Managers
         private bool? m_subredditList_ShowFullTitles = null;
 
         /// <summary>
+        /// The default subreddit sort type
+        /// </summary>
+        public SortTypes SubredditList_DefaultSortType
+        {
+            get
+            {
+                if (!m_subredditList_DefaultSortType.HasValue)
+                {
+                    if (m_baconMan.SettingsMan.RoamingSettings.ContainsKey("UiSettingManager.SubredditList_DefaultSortType"))
+                    {
+                        m_subredditList_DefaultSortType = m_baconMan.SettingsMan.ReadFromRoamingSettings<SortTypes>("UiSettingManager.SubredditList_DefaultSortType");
+                    }
+                    else
+                    {
+                        m_subredditList_DefaultSortType = SortTypes.Hot;
+                    }
+                }
+                return m_subredditList_DefaultSortType.Value;
+            }
+            set
+            {
+                m_subredditList_DefaultSortType = value;
+                m_baconMan.SettingsMan.WriteToRoamingSettings<SortTypes>("UiSettingManager.SubredditList_DefaultSortType", m_subredditList_DefaultSortType.Value);
+            }
+        }
+        private SortTypes? m_subredditList_DefaultSortType = null;
+
+        /// <summary>
+        /// The default subreddit sort time type
+        /// </summary>
+        public SortTimeTypes SubredditList_DefaultSortTimeType
+        {
+            get
+            {
+                if (!m_subredditList_DefaultSortTimeType.HasValue)
+                {
+                    if (m_baconMan.SettingsMan.RoamingSettings.ContainsKey("UiSettingManager.SubredditList_DefaultSortTimeType"))
+                    {
+                        m_subredditList_DefaultSortTimeType = m_baconMan.SettingsMan.ReadFromRoamingSettings<SortTimeTypes>("UiSettingManager.SubredditList_DefaultSortTimeType");
+                    }
+                    else
+                    {
+                        m_subredditList_DefaultSortTimeType = SortTimeTypes.Week;
+                    }
+                }
+                return m_subredditList_DefaultSortTimeType.Value;
+            }
+            set
+            {
+                m_subredditList_DefaultSortTimeType = value;
+                m_baconMan.SettingsMan.WriteToRoamingSettings<SortTimeTypes>("UiSettingManager.SubredditList_DefaultSortTimeType", m_subredditList_DefaultSortTimeType.Value);
+            }
+        }
+        private SortTimeTypes? m_subredditList_DefaultSortTimeType = null;
+
+        /// <summary>
         /// The default Subreddit to show when the app opens
         /// </summary>
         public string SubredditList_DefaultSubredditDisplayName
@@ -195,6 +308,67 @@ namespace BaconBackend.Managers
 
         #endregion
 
+        #region Comments
+
+        /// <summary>
+        /// The default comment sort type
+        /// </summary>
+        public CommentSortTypes Comments_DefaultSortType
+        {
+            get
+            {
+                if (!m_comments_DefaultSortType.HasValue)
+                {
+                    if (m_baconMan.SettingsMan.RoamingSettings.ContainsKey("UiSettingManager.Comments_DefaultSortType"))
+                    {
+                        m_comments_DefaultSortType = m_baconMan.SettingsMan.ReadFromRoamingSettings<CommentSortTypes>("UiSettingManager.Comments_DefaultSortType");
+                    }
+                    else
+                    {
+                        m_comments_DefaultSortType = CommentSortTypes.Best;
+                    }
+                }
+                return m_comments_DefaultSortType.Value;
+            }
+            set
+            {
+                m_comments_DefaultSortType = value;
+                m_baconMan.SettingsMan.WriteToRoamingSettings<CommentSortTypes>("UiSettingManager.Comments_DefaultSortType", m_comments_DefaultSortType.Value);
+            }
+        }
+        private CommentSortTypes? m_comments_DefaultSortType = null;
+
+
+        /// <summary>
+        /// The default comment count number
+        /// </summary>
+        public int Comments_DefaultCount
+        {
+            get
+            {
+                if (!m_comments_DefaultCount.HasValue)
+                {
+                    if (m_baconMan.SettingsMan.RoamingSettings.ContainsKey("UiSettingManager.Comments_DefaultCount"))
+                    {
+                        m_comments_DefaultCount = m_baconMan.SettingsMan.ReadFromRoamingSettings<int>("UiSettingManager.Comments_DefaultCount");
+                    }
+                    else
+                    {
+                        m_comments_DefaultCount = 150;
+                    }
+                }
+                return m_comments_DefaultCount.Value;
+            }
+            set
+            {
+                m_comments_DefaultCount = value;
+                m_baconMan.SettingsMan.WriteToRoamingSettings<int>("UiSettingManager.Comments_DefaultCount", m_comments_DefaultCount.Value);
+            }
+        }
+        private int? m_comments_DefaultCount = null;
+
+        #endregion
+
         #region Flip View
 
         /// <summary>
@@ -206,9 +380,9 @@ namespace BaconBackend.Managers
             {
                 if (!m_flipView_NsfwBlockingType.HasValue)
                 {
-                    if (m_baconMan.SettingsMan.LocalSettings.ContainsKey("UiSettingManager.FlipView_NsfwBlockingType"))
+                    if (m_baconMan.SettingsMan.RoamingSettings.ContainsKey("UiSettingManager.FlipView_NsfwBlockingType"))
                     {
-                        m_flipView_NsfwBlockingType = m_baconMan.SettingsMan.ReadFromLocalSettings<NsfwBlockType>("UiSettingManager.FlipView_NsfwBlockingType");
+                        m_flipView_NsfwBlockingType = m_baconMan.SettingsMan.ReadFromRoamingSettings<NsfwBlockType>("UiSettingManager.FlipView_NsfwBlockingType");
                     }
                     else
                     {
@@ -220,7 +394,7 @@ namespace BaconBackend.Managers
             set
             {
                 m_flipView_NsfwBlockingType = value;
-                m_baconMan.SettingsMan.WriteToLocalSettings<NsfwBlockType>("UiSettingManager.FlipView_NsfwBlockingType", m_flipView_NsfwBlockingType.Value);
+                m_baconMan.SettingsMan.WriteToRoamingSettings<NsfwBlockType>("UiSettingManager.FlipView_NsfwBlockingType", m_flipView_NsfwBlockingType.Value);
             }
         }
         private NsfwBlockType? m_flipView_NsfwBlockingType = null;
@@ -254,6 +428,62 @@ namespace BaconBackend.Managers
         private bool? m_flipView_PreloadComments = null;
 
         /// <summary>
+        /// If the user wants us to load post content before they tap the screen.
+        /// </summary>
+        public bool FlipView_LoadPostContentWithoutAction
+        {
+            get
+            {
+                if (!m_flipView_LoadPostContentWithoutAction.HasValue)
+                {
+                    if (m_baconMan.SettingsMan.LocalSettings.ContainsKey("UiSettingManager.FlipView_LoadPostContentWithoutAction"))
+                    {
+                        m_flipView_LoadPostContentWithoutAction = m_baconMan.SettingsMan.ReadFromLocalSettings<bool>("UiSettingManager.FlipView_LoadPostContentWithoutAction");
+                    }
+                    else
+                    {
+                        m_flipView_LoadPostContentWithoutAction = true;
+                    }
+                }
+                return m_flipView_LoadPostContentWithoutAction.Value;
+            }
+            set
+            {
+                m_flipView_LoadPostContentWithoutAction = value;
+                m_baconMan.SettingsMan.WriteToLocalSettings<bool>("UiSettingManager.FlipView_LoadPostContentWithoutAction", m_flipView_LoadPostContentWithoutAction.Value);
+            }
+        }
+        private bool? m_flipView_LoadPostContentWithoutAction = null;
+
+        /// <summary>
+        /// If the user wants us to prelaod future flip view content.
+        /// </summary>
+        public bool FlipView_PreloadFutureContent
+        {
+            get
+            {
+                if (!m_flipView_PreloadFutureContent.HasValue)
+                {
+                    if (m_baconMan.SettingsMan.LocalSettings.ContainsKey("UiSettingManager.FlipView_PreloadFutureContent"))
+                    {
+                        m_flipView_PreloadFutureContent = m_baconMan.SettingsMan.ReadFromLocalSettings<bool>("UiSettingManager.FlipView_PreloadFutureContent");
+                    }
+                    else
+                    {
+                        m_flipView_PreloadFutureContent = true;
+                    }
+                }
+                return m_flipView_PreloadFutureContent.Value;
+            }
+            set
+            {
+                m_flipView_PreloadFutureContent = value;
+                m_baconMan.SettingsMan.WriteToLocalSettings<bool>("UiSettingManager.FlipView_PreloadFutureContent", m_flipView_PreloadFutureContent.Value);
+            }
+        }
+        private bool? m_flipView_PreloadFutureContent = null;
+
+        /// <summary>
         /// If we should show the user the comment tip or not.
         /// </summary>
         public bool FlipView_ShowCommentScrollTip
@@ -280,6 +510,43 @@ namespace BaconBackend.Managers
             }
         }
         private bool? m_flipView_ShowCommentScrollTip = null;
+
+        /// <summary>
+        /// If the user wants us to minimize the story header.
+        /// </summary>
+        public bool FlipView_MinimizeStoryHeader
+        {
+            get
+            {
+                if (!m_flipView_MinimizeStoryHeader.HasValue)
+                {
+                    if (m_baconMan.SettingsMan.RoamingSettings.ContainsKey("UiSettingManager.FlipView_MinimizeStoryHeader"))
+                    {
+                        m_flipView_MinimizeStoryHeader = m_baconMan.SettingsMan.ReadFromRoamingSettings<bool>("UiSettingManager.FlipView_MinimizeStoryHeader");
+                    }
+                    else
+                    {
+                        m_flipView_MinimizeStoryHeader = true;
+                    }
+                }
+                return m_flipView_MinimizeStoryHeader.Value;
+            }
+            set
+            {
+                m_flipView_MinimizeStoryHeader = value;
+                m_baconMan.SettingsMan.WriteToRoamingSettings<bool>("UiSettingManager.FlipView_MinimizeStoryHeader", m_flipView_MinimizeStoryHeader.Value);
+            }
+        }
+        private bool? m_flipView_MinimizeStoryHeader = null;
+
+        #endregion
+
+        #region Developer
+
+        /// <summary>
+        /// Used to keep track of how many pages have been removed.
+        /// </summary>
+        public int PagesMemoryCleanedUp = 0;
 
         #endregion
     }

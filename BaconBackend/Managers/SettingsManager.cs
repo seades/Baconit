@@ -9,6 +9,8 @@ using Windows.Storage.Streams;
 using Newtonsoft.Json;
 using Windows.UI.Xaml;
 using System.Threading;
+using System.IO;
+using Windows.Storage.FileProperties;
 
 namespace BaconBackend.Managers
 {
@@ -29,8 +31,8 @@ namespace BaconBackend.Managers
             // We can't do this from a background task
             if (!baconMan.IsBackgroundTask)
             {
-                // Register for suspend callbacks.
-                Application.Current.Suspending += App_Suspending;
+                // Register for resuming callbacks.
+                m_baconMan.OnResuming += BaconMan_OnResuming;
             }
         }
 
@@ -77,7 +79,15 @@ namespace BaconBackend.Managers
         /// <param name="obj"></param>
         public void WriteToLocalSettings<T>(string name, T obj)
         {
-            LocalSettings[name] = JsonConvert.SerializeObject(obj);
+            try
+            {
+                LocalSettings[name] = JsonConvert.SerializeObject(obj);
+            }
+            catch(Exception e)
+            {
+                m_baconMan.MessageMan.DebugDia("failed to write setting " + name, e);
+                m_baconMan.TelemetryMan.ReportUnExpectedEvent(this, "failedToWriteSetting" + name, e);
+            }            
         }
 
         /// <summary>
@@ -118,19 +128,28 @@ namespace BaconBackend.Managers
         {
             try
             {
+                // Get the file.
                 StorageFolder folder = Windows.Storage.ApplicationData.Current.LocalFolder;
                 StorageFile file = await folder.CreateFileAsync(LOCAL_SETTINGS_FILE, CreationCollisionOption.OpenIfExists);
 
-                // Read the file
-                string content = await Windows.Storage.FileIO.ReadTextAsync(file);
-
-                // Deserialize the json
-                if (content != "")
+                // Check the file size
+                BasicProperties fileProps = await file.GetBasicPropertiesAsync();
+                if(fileProps.Size > 0)
                 {
-                    m_localSettings = JsonConvert.DeserializeObject<Dictionary<string, object>>(content);
+                    // Get the input stream and json reader.
+                    // NOTE!! We are really careful not to use a string here so we don't have to allocate a huge string.
+                    IInputStream inputStream = await file.OpenReadAsync();
+                    using (StreamReader reader = new StreamReader(inputStream.AsStreamForRead()))
+                    using (JsonReader jsonReader = new JsonTextReader(reader))
+                    {
+                        // Parse the settings file into the dictionary.
+                        JsonSerializer serializer = new JsonSerializer();
+                        m_localSettings = await Task.Run(() => serializer.Deserialize<Dictionary<string, object>>(jsonReader));
+                    }
                 }
                 else
                 {
+                    // The file is empty, just make a new dictionary.
                     m_localSettings = new Dictionary<string, object>();
                 }
             }
@@ -140,39 +159,38 @@ namespace BaconBackend.Managers
                 m_localSettings = new Dictionary<string, object>();
             }
 
-            //Signal we are ready
+            // Signal we are ready
             m_localSettingsReady.Set();
         }
 
-        private async void App_Suspending(object sender, Windows.ApplicationModel.SuspendingEventArgs e)
+        /// <summary>
+        /// Fired when the app is resuming.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void BaconMan_OnResuming(object sender, EventArgs e)
         {
-            // Grab the deferral
-            var deferral = e.SuspendingOperation.GetDeferral();
+            // When we resume read the settings again to pick up anything from the updater
+            InitLocalSettings();
+        }
 
-            // Write the settings.
+        public async Task FlushLocalSettings()
+        {
             try
             {
-                await FlushLocalSettings();
+                StorageFolder folder = Windows.Storage.ApplicationData.Current.LocalFolder;
+                StorageFile file = await folder.CreateFileAsync(LOCAL_SETTINGS_FILE, CreationCollisionOption.OpenIfExists);
+
+                // Serialize the Json
+                string json = JsonConvert.SerializeObject(m_localSettings);
+
+                // Write to the file
+                await Windows.Storage.FileIO.WriteTextAsync(file, json);
             }
             catch (Exception ex)
             {
                 m_baconMan.MessageMan.DebugDia("Failed to write settings", ex);
-            }
-
-            // Set that we are done.
-            deferral.Complete();
-        }
-
-        private async Task FlushLocalSettings()
-        {
-            StorageFolder folder = Windows.Storage.ApplicationData.Current.LocalFolder;
-            StorageFile file = await folder.CreateFileAsync(LOCAL_SETTINGS_FILE, CreationCollisionOption.OpenIfExists);
-
-            // Serialize the Json
-            string json = JsonConvert.SerializeObject(m_localSettings);
-
-            // Write to the file
-            await Windows.Storage.FileIO.WriteTextAsync(file, json);
+            }      
         }
     }
 }

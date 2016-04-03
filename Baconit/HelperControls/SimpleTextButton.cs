@@ -58,6 +58,9 @@ namespace Baconit.HelperControls
 
         private void SimpleTextButton_Loaded(object sender, RoutedEventArgs e)
         {
+            // Unregister for loaded events so we don't do this many times.
+            Loaded -= SimpleTextButton_Loaded;
+
             // First, try to get the main root grid.
             List<DependencyObject> uiElements = new List<DependencyObject>();
             UiControlHelpers<Grid>.RecursivelyFindElement(this, ref uiElements);
@@ -85,9 +88,11 @@ namespace Baconit.HelperControls
             // If the desired text already exists set it
             if(m_currentButtonText != null)
             {
-                ui_buttonText.Text = m_currentButtonText;
-                ui_buttonText.Foreground = new SolidColorBrush(m_normalTextColor);
+                ui_buttonText.Text = m_currentButtonText;                
             }
+
+            // Set the normal text color
+            ui_buttonText.Foreground = new SolidColorBrush(m_normalTextColor);
 
             // Grab the current accent color
             m_accentColor = ((SolidColorBrush)Application.Current.Resources["SystemControlBackgroundAccentBrush"]).Color;
@@ -194,7 +199,7 @@ namespace Baconit.HelperControls
                 typeof(string),                   // The type of the DependencyProperty
                 typeof(SimpleTextButton), // The type of the owner of the DependencyProperty
                 new PropertyMetadata(           // OnBlinkChanged will be called when Blink changes
-                    false,                      // The default value of the DependencyProperty
+                    "",                      // The default value of the DependencyProperty
                     new PropertyChangedCallback(OnButtonTextChangedStatic)
                 ));
 
@@ -203,7 +208,7 @@ namespace Baconit.HelperControls
             var instance = (SimpleTextButton)d;
             if (instance != null)
             {
-                instance.OnTextButtonChanged(e.NewValue.GetType() == typeof(string) ? (string)e.NewValue : "");
+                instance.OnTextButtonChanged((string)e.NewValue);
             }
         }
 
@@ -242,7 +247,7 @@ namespace Baconit.HelperControls
                 typeof(SolidColorBrush),                   // The type of the DependencyProperty
                 typeof(SimpleTextButton), // The type of the owner of the DependencyProperty
                 new PropertyMetadata(           // OnBlinkChanged will be called when Blink changes
-                    false,                      // The default value of the DependencyProperty
+                    null,                      // The default value of the DependencyProperty
                     new PropertyChangedCallback(OnForgroundColorChangedStatic)
                 ));
 
@@ -251,7 +256,7 @@ namespace Baconit.HelperControls
             var instance = (SimpleTextButton)d;
             if (instance != null)
             {
-                instance.OnForgroundColorChanged(e.NewValue.GetType() == typeof(SolidColorBrush) ? (SolidColorBrush)e.NewValue : null);
+                instance.OnForgroundColorChanged((SolidColorBrush)e.NewValue);
             }
         }
 
