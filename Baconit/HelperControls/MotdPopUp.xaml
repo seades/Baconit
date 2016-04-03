@@ -10,7 +10,6 @@
              mc:Ignorable="d">
 
     <Grid x:Name="ui_contentRoot" Background="#BB000000">
-
         <!--  Animations  -->
         <VisualStateManager.VisualStateGroups>
             <VisualStateGroup x:Name="DialogVis">
@@ -101,27 +100,35 @@
         </VisualStateManager.VisualStateGroups>
 
         <Grid MaxWidth="500"
+              Margin="12"
               HorizontalAlignment="Center"
               VerticalAlignment="Center"
               RenderTransformOrigin=".5,.5">
             <Grid.RowDefinitions>
-                <RowDefinition Height="auto" />
+                <RowDefinition Height="*" />
                 <RowDefinition Height="auto" />
             </Grid.RowDefinitions>
             <Grid.RenderTransform>
                 <ScaleTransform x:Name="ui_contentScale" />
             </Grid.RenderTransform>
+
             <Grid Background="#333333">
-                <StackPanel>
-                    <TextBlock x:Name="ui_titleText"
-                               Margin="12,12,12,12"
-                               Foreground="{ThemeResource SystemControlBackgroundAccentBrush}"
-                               Style="{ThemeResource TitleTextBlockStyle}"
-                               Text="Title! Welcome Developer!" />
-                    <universalMarkdown:MarkdownTextBlock x:Name="ui_markdownText"
-                                                         Margin="12,12,12,24"
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <TextBlock x:Name="ui_titleText"
+                           Margin="12,12,12,12"
+                           Foreground="{ThemeResource SystemControlBackgroundAccentBrush}"
+                           Style="{ThemeResource TitleTextBlockStyle}"
+                           Text="Title! Welcome Developer!" />
+                <ScrollViewer Grid.Row="1"                              
+                              Style="{StaticResource ScrollViewerStyle}" Margin="0,0,0,24">
+                    <universalMarkdown:MarkdownTextBlock x:Name="ui_markdownText" Margin="12,0,12,0"
                                                          OnMarkdownLinkTapped="MarkdownText_OnMarkdownLinkTapped" />
-                </StackPanel>
+
+                </ScrollViewer>
             </Grid>
             <local:CircleIconButton Grid.Row="1"
                                     Margin="12"

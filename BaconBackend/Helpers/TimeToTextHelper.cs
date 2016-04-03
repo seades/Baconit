@@ -6,6 +6,10 @@ using System.Threading.Tasks;
 
 namespace BaconBackend.Helpers
 {
+    /// <summary>
+    /// Helper class to convert an absolute time to text that represents 
+    /// elapsed time.
+    /// </summary>
     public class TimeToTextHelper
     {
         /// <summary>
@@ -55,7 +59,7 @@ namespace BaconBackend.Helpers
                     return $"{(int)elapsed.TotalHours} hours";
                 }
             }
-            else
+            else if(elapsed.TotalDays < 365)
             {
                 if (elapsed.TotalDays < 2)
                 {
@@ -64,6 +68,19 @@ namespace BaconBackend.Helpers
                 else
                 {
                     return $"{(int)elapsed.TotalDays} days";
+                }
+            }
+            else
+            {
+                double years = elapsed.TotalDays / 365;
+                years = Math.Round(years, 1);
+                if(years == 1)
+                {
+                    return $"{years} year";
+                }
+                else
+                {
+                    return $"{years} years";
                 }
             }
         }

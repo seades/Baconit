@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Windows.Web.Http;
 
 namespace BaconBackend.Managers
 {
@@ -117,10 +118,10 @@ namespace BaconBackend.Managers
                 string lastUserName = CurrentUser == null ? "" : CurrentUser.Name;
 
                 // Make the web call
-                string resonse = await m_baconMan.NetworkMan.MakeRedditGetRequest("/api/v1/me/.json");
+                IHttpContent resonse = await m_baconMan.NetworkMan.MakeRedditGetRequest("/api/v1/me/.json");
 
                 // Parse the user
-                User user = Newtonsoft.Json.JsonConvert.DeserializeObject<User>(resonse);
+                User user = await m_baconMan.NetworkMan.DeseralizeObject<User>(resonse);
 
                 // Set the new user
                 CurrentUser = user;
@@ -143,10 +144,18 @@ namespace BaconBackend.Managers
             };
         }
 
-        public void ToggleHasMessages(bool hasMessages)
+        public void UpdateUnReadMessageCount(int unreadMessages)
         {
-            CurrentUser.HasMail = hasMessages;
-            FireOnUserUpdated(UserCallbackAction.Updated);
+            if (CurrentUser != null)
+            {
+                // Update
+                CurrentUser.HasMail = unreadMessages != 0;
+                CurrentUser.InboxCount = unreadMessages;
+                // Force a save
+                CurrentUser = CurrentUser;
+                // Fire the callback
+                FireOnUserUpdated(UserCallbackAction.Updated);
+            }
         }
 
         private void FireOnUserUpdated(UserCallbackAction action)
@@ -159,7 +168,7 @@ namespace BaconBackend.Managers
             catch (Exception ex)
             {
                 m_baconMan.MessageMan.DebugDia("Failed to notify user listener of update", ex);
-                m_baconMan.TelemetryMan.ReportUnExpectedEvent(this, "failed to fire OnUserUpdated", ex);
+                m_baconMan.TelemetryMan.ReportUnexpectedEvent(this, "failed to fire OnUserUpdated", ex);
             }
         }
 

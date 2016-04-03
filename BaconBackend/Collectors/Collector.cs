@@ -13,10 +13,35 @@ namespace BaconBackend.Collectors
     /// </summary>
     public enum CollectorState
     {
+        /// <summary>
+        /// If the collector is not doing any operation, and is in a correct state.
+        /// </summary>
         Idle,
+        /// <summary>
+        /// If the collector is requesting updated versions of the data it has.
+        /// </summary>
         Updating,
+        /// <summary>
+        /// If the collector is requesting new information to extend its data.
+        /// </summary>
         Extending,
+        /// <summary>
+        /// If there is no more content to extend the collector with.
+        /// </summary>
+        FullyExtended,
+        /// <summary>
+        /// If an error occurred in the collector's operation.
+        /// </summary>
         Error
+    }
+
+    /// <summary>
+    /// Defines the possible error states of the collector
+    /// </summary>
+    public enum CollectorErrorState
+    {
+        Unknown,
+        ServiceDown,
     }
 
     /// <summary>
@@ -24,7 +49,12 @@ namespace BaconBackend.Collectors
     /// </summary>
     public class OnCollectorStateChangeArgs : EventArgs
     {
+        /// <summary>
+        /// The collector's new state.
+        /// </summary>
         public CollectorState State;
+        public CollectorErrorState ErrorState = CollectorErrorState.Unknown;
+        public int NewPostCount = 0;
     }
 
     /// <summary>
@@ -32,10 +62,69 @@ namespace BaconBackend.Collectors
     /// </summary>
     public class OnCollectionUpdatedArgs<T> : EventArgs
     {
+        /// <summary>
+        /// If the information in the collector was just fully updated.
+        /// </summary>
         public bool IsFreshUpdate;
+        /// <summary>
+        /// If the collection was changed by inserting something user created (and not from a web request).
+        /// </summary>
         public bool IsInsert;
+        /// <summary>
+        /// The position of the first updated item in the collector's items.
+        /// </summary>
         public int StartingPosition;
+        /// <summary>
+        /// The list of items in the collector that have changed.
+        /// </summary>
         public List<T> ChangedItems;
+    }
+
+    /// <summary>
+    /// Possible vote actions.
+    /// </summary>
+    public enum PostVoteAction
+    {
+        UpVote,
+        DownVote,
+    }
+
+    /// <summary>
+    /// Types of sort
+    /// </summary>
+    public enum SortTypes
+    {
+        Hot,
+        New,
+        Rising,
+        Controversial,
+        Top
+    }
+
+    /// <summary>
+    /// Types of sort for comments
+    /// </summary>
+    public enum CommentSortTypes
+    {
+        Best,
+        New,
+        Top,
+        Controversial,
+        Old,
+        QA
+    }
+
+    /// <summary>
+    /// Types of sort times.
+    /// </summary>
+    public enum SortTimeTypes
+    {
+        Hour,
+        Day,
+        Week,
+        Month,
+        Year,
+        AllTime
     }
 
     public abstract class Collector<T>
@@ -98,6 +187,11 @@ namespace BaconBackend.Collectors
             get { return m_state; }
         }
 
+        public CollectorErrorState ErrorState
+        {
+            get { return m_errorState; }
+        }
+
         //
         // Abstract Functions
         //
@@ -119,6 +213,7 @@ namespace BaconBackend.Collectors
         //
 
         CollectorState m_state = CollectorState.Idle;
+        CollectorErrorState m_errorState = CollectorErrorState.Unknown;
         RedditListHelper<T> m_listHelper;
         BaconManager m_baconMan;
         string m_uniqueId;
@@ -127,9 +222,6 @@ namespace BaconBackend.Collectors
         {
             m_baconMan = manager;
             m_uniqueId = uniqueId;
-
-            // Sub to user changes so we can update the list.
-            m_baconMan.UserMan.OnUserUpdated += OnUserUpdated;
         }
 
         /// <summary>
@@ -157,7 +249,7 @@ namespace BaconBackend.Collectors
         /// </summary>
         /// <param name="force"></param>
         /// <returns>If an update was kicked off or not</returns>
-        public bool Update(bool force = false, int updateCount = 50)
+        public virtual bool Update(bool force = false, int updateCount = 50)
         {
             // #todo add caching
             // #todo #bug If we are refreshing we will grab 50 new post but listeners might already have 100
@@ -207,16 +299,18 @@ namespace BaconBackend.Collectors
                     {
                         m_state = CollectorState.Idle;
                     }
-                    FireStateChanged();
+
+                    FireStateChanged(posts.Count);
                 }
                 catch (Exception e)
                 {
-                    m_baconMan.MessageMan.DebugDia("Subreddit update failed", e);
+                    m_baconMan.MessageMan.DebugDia("Collector failed to update id:"+ m_uniqueId, e);
 
                     // Update the state
                     lock (m_listHelper)
                     {
                         m_state = CollectorState.Error;
+                        m_errorState = e is ServiceDownException ? CollectorErrorState.ServiceDown : CollectorErrorState.Unknown;
                     }
                     FireStateChanged();
                 }
@@ -235,7 +329,7 @@ namespace BaconBackend.Collectors
             // we need to indicate to them they should remove the rest of the posts that are old.
             lock (m_listHelper)
             {
-                if (m_state == CollectorState.Updating || m_state == CollectorState.Extending)
+                if (m_state == CollectorState.Updating || m_state == CollectorState.Extending || m_state == CollectorState.FullyExtended)
                 {
                     return;
                 }
@@ -264,9 +358,17 @@ namespace BaconBackend.Collectors
                     // Update the state
                     lock (m_listHelper)
                     {
-                        m_state = CollectorState.Idle;
+                        if (posts.Count == 0)
+                        {
+                            // If we don't get anything back we are fully extended.
+                            m_state = CollectorState.FullyExtended;
+                        }
+                        else
+                        {
+                            m_state = CollectorState.Idle;
+                        }
                     }
-                    FireStateChanged();
+                    FireStateChanged(posts.Count);
                 }
                 catch (Exception e)
                 {
@@ -276,27 +378,12 @@ namespace BaconBackend.Collectors
                     lock (m_listHelper)
                     {
                         m_state = CollectorState.Error;
+                        m_errorState = e is ServiceDownException ? CollectorErrorState.ServiceDown : CollectorErrorState.Unknown;
                     }
                     FireStateChanged();
                 }
             });
         }
-
-
-        /// <summary>
-        /// Fired when the current user is updated.
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="args"></param>
-        private void OnUserUpdated(object sender, OnUserUpdatedArgs args)
-        {
-            // If a user is added or removed update the subreddit to reflect the new user.
-            if (args.Action != UserCallbackAction.Updated)
-            {
-                Update(true);
-            }
-        }
-
 
         /// <summary>
         /// Returns the current post that are cached in the object.
@@ -342,11 +429,11 @@ namespace BaconBackend.Collectors
         /// <summary>
         /// Fire the state changed event.
         /// </summary>
-        protected void FireStateChanged()
+        protected void FireStateChanged(int newPostCount = 0)
         {
             try
             {
-                m_onCollectorStateChange.Raise(this, new OnCollectorStateChangeArgs() { State = m_state });
+                m_onCollectorStateChange.Raise(this, new OnCollectorStateChangeArgs() { State = m_state, ErrorState = m_errorState, NewPostCount = newPostCount });
             }
             catch (Exception e)
             {

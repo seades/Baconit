@@ -42,16 +42,36 @@ namespace Baconit.Panels
             ui_slidingImageControl.StopAnimation();
         }
 
-        public void OnNavigatingTo()
+        public async void OnNavigatingTo()
         {
             if(m_host.CurrentScreenMode() == ScreenMode.Split)
             {
-                ui_slidingImageControl.BeginAnimation();                
+                ui_slidingImageControl.BeginAnimation();
             }
+
+            // Set the status bar color and get the size returned. If it is not 0 use that to move the
+            // color of the page into the status bar.
+            double statusBarHeight = await m_host.SetStatusBar(null, 0);
+            ui_contentRoot.Margin = new Thickness(0, -statusBarHeight, 0, 0);
         }
 
         public void OnPanelPulledToTop(Dictionary<string, object> arguments)
         {
+            OnNavigatingTo();
+        }
+
+        public void OnCleanupPanel()
+        {
+            // Ignore for now.
+        }
+
+        /// <summary>
+        /// Fired when the panel should try to reduce memory if possible. This will only be called
+        /// while the panel isn't visible.
+        /// </summary>
+        public void OnReduceMemory()
+        {
+            // Ignore for now.
         }
     }
 }

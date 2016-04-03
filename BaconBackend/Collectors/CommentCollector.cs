@@ -1,5 +1,6 @@
 ﻿using BaconBackend.DataObjects;
 using BaconBackend.Helpers;
+using BaconBackend.Managers;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
@@ -7,6 +8,8 @@ using System.Linq;
 using System.Net;
 using System.Text;
 using System.Threading.Tasks;
+using Windows.ApplicationModel.Core;
+using Windows.UI.Core;
 
 namespace BaconBackend.Collectors
 {
@@ -24,7 +27,10 @@ namespace BaconBackend.Collectors
         public class CommentCollectorContext
         {
             public Post post;
+            public User user;
+            public SortTypes userSort;
             public string forceComment;
+            public string UniqueId;
         }
 
         /// <summary>
@@ -34,46 +40,108 @@ namespace BaconBackend.Collectors
         /// <returns></returns>
         public static CommentCollector GetCollector(Post post, BaconManager baconMan, string forceComment = null)
         {
-            string uniqueId = post.Id + (String.IsNullOrWhiteSpace(forceComment) ? String.Empty : forceComment);
             CommentCollectorContext context = new CommentCollectorContext() { forceComment = forceComment, post = post };
-            return (CommentCollector)Collector<Comment>.GetCollector(typeof(CommentCollector), uniqueId, context, baconMan);
+            context.UniqueId = post.Id + (String.IsNullOrWhiteSpace(forceComment) ? String.Empty : forceComment) + post.CommentSortType;
+            return (CommentCollector)Collector<Comment>.GetCollector(typeof(CommentCollector), context.UniqueId, context, baconMan);
+        }
+
+        /// <summary>
+        /// Returns a collector for the given type. If the collector doesn't exist one will be created.
+        /// </summary>
+        /// <param name="subreddit"></param>
+        /// <returns></returns>
+        public static CommentCollector GetCollector(User user, BaconManager baconMan, SortTypes sort = SortTypes.New)
+        {
+            CommentCollectorContext context = new CommentCollectorContext() { user = user, userSort = sort };
+            context.UniqueId = "t2_"+user.Id + sort;
+            return (CommentCollector)Collector<Comment>.GetCollector(typeof(CommentCollector), context.UniqueId, context, baconMan);
         }
 
         //
         // Private vars
         //
         Post m_post = null;
+        User m_user = null;
         BaconManager m_baconMan;
 
         public CommentCollector(CommentCollectorContext context, BaconManager baconMan)
-            : base(baconMan, context.post.Id)
+            : base(baconMan, context.UniqueId)
         {
             // Set the vars
             m_baconMan = baconMan;
             m_post = context.post;
+            m_user = context.user;
 
-            string postUrl = null;
+            string commentBaseUrl = "";
             string optionalParams = null;
-            // See if it a force comment
-            if (!String.IsNullOrWhiteSpace(context.forceComment))
-            {
-                // Set a unique id for this request
-                SetUniqueId(m_post.Id + context.forceComment);
+            bool hasEmptyRoot = true;
+            bool takeFirstArray = false;
 
-                // Make the url
-                postUrl = $"{context.post.Permalink}{context.forceComment}.json";
-                optionalParams = "context=3";
+            if (m_post != null)
+            {
+                // See if it a force comment
+                if (!String.IsNullOrWhiteSpace(context.forceComment))
+                {
+                    // Set a unique id for this request
+                    SetUniqueId(m_post.Id + context.forceComment);
+
+                    // Make the url
+                    commentBaseUrl = $"{context.post.Permalink}{context.forceComment}.json";
+                    optionalParams = "context=3";
+                }
+                else
+                {
+                    // Get the post url
+                    commentBaseUrl = $"/r/{context.post.Subreddit}/comments/{context.post.Id}.json";
+
+                    optionalParams = $"sort={ConvertSortToUrl(m_post.CommentSortType)}";
+                }
+
+                hasEmptyRoot = true;
+                takeFirstArray = false;
             }
             else
             {
-                // Get the post url
-                postUrl = $"/r/{context.post.Subreddit}/comments/{context.post.Id}.json";
-                optionalParams = "sort=confidence";
+                commentBaseUrl = $"user/{m_user.Name}/comments/.json";
+                hasEmptyRoot = false;
+                takeFirstArray = true;
+
+                switch (context.userSort)
+                {
+                    case SortTypes.Controversial:
+                        optionalParams = "sort=controversial";
+                        break;
+                    case SortTypes.Hot:
+                        optionalParams = "sort=hot";
+                        break;
+                    case SortTypes.New:
+                        optionalParams = "sort=new";
+                        break;
+                    case SortTypes.Top:
+                        optionalParams = "sort=top";
+                        break;
+                }
             }
 
             // Make the helper, we need to ask it to make a fake root and not to take the
             // first element, the second element is the comment tree.
-            InitListHelper(postUrl, true, false, optionalParams);
+            InitListHelper(commentBaseUrl, hasEmptyRoot, takeFirstArray, optionalParams);
+
+            m_baconMan.UserMan.OnUserUpdated += OnUserUpdated;
+        }
+
+        /// <summary>
+        /// Fired when the current user is updated.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="args"></param>
+        private void OnUserUpdated(object sender, OnUserUpdatedArgs args)
+        {
+            // If a user is added or removed update the subreddit to reflect the new user.
+            if (args.Action != UserCallbackAction.Updated)
+            {
+                Update(true);
+            }
         }
 
         /// <summary>
@@ -115,7 +183,6 @@ namespace BaconBackend.Collectors
         /// <param name="comments">Commetns to be formatted</param>
         override protected void ApplyCommonFormatting(ref List<Comment> comments)
         {
-            // #Todo
             foreach(Comment comment in comments)
             {
                 // Set The time
@@ -128,7 +195,38 @@ namespace BaconBackend.Collectors
                 comment.AuthorFlairText = WebUtility.HtmlDecode(comment.AuthorFlairText);
 
                 // Set if this post is from the op
-                comment.IsCommentFromOp = comment.Author.Equals(m_post.Author);
+                comment.IsCommentFromOp = m_post != null && comment.Author.Equals(m_post.Author);
+
+                // Set if this comment is from the current user
+                if (m_baconMan.UserMan.IsUserSignedIn && m_baconMan.UserMan.CurrentUser != null)
+                {
+                    comment.IsCommentOwnedByUser = m_baconMan.UserMan.CurrentUser.Name.Equals(comment.Author, StringComparison.OrdinalIgnoreCase);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Used to add a comment is edited by the user.
+        /// </summary>
+        /// <param name="parentId"></param>
+        /// <param name="comment"></param>
+        private void UpdateComment(Comment newComment)
+        {
+            // First get the guts of the list helper.
+            List<Element<Comment>> currentElements = GetListHelperElements();
+
+            // Here is a hard one. To edit the comment in to the comment tree we need to run through
+            // the current elements and figure out where it goes.
+            int insertedPos = 0;
+            bool wasSuccess = InjectCommentRecursive(ref currentElements, newComment.Id, newComment, true, ref insertedPos);
+
+            if(wasSuccess)
+            {
+                // Fire the updated event to show on the UI.
+                FireCollectionUpdated(insertedPos, new List<Comment> { newComment }, false, false);
+
+                // Fire collection state changed
+                FireStateChanged(1);
             }
         }
 
@@ -153,21 +251,30 @@ namespace BaconBackend.Collectors
 
                 // Fire the updated event to show on the UI.
                 FireCollectionUpdated(listLength + 1, new List<Comment> { comment }, false, false);
+
+                // Fire the collection state changed
+                FireStateChanged(1);
             }
             else
             {
                 // Here is a hard one. To inject the comment in to the comment tree we need to run through
                 // the current elements and figure out where it goes.
                 int insertedPos = 0;
-                string searchingId = parentId.Substring(3);
-                bool wasSuccess = InjectCommentRecursive(ref currentElements, searchingId, comment, ref insertedPos);
+                string parentIdWithoutType = parentId.Substring(3);
+                bool wasSuccess = InjectCommentRecursive(ref currentElements, parentIdWithoutType, comment, false, ref insertedPos);
 
-                // Fire the updated event to show on the UI.
-                FireCollectionUpdated(insertedPos, new List<Comment> { comment }, false, true);
+                if(wasSuccess)
+                {
+                    // Fire the updated event to show on the UI.
+                    FireCollectionUpdated(insertedPos, new List<Comment> { comment }, false, true);
+
+                    // Fire collection state changed
+                    FireStateChanged(1);
+                }
             }
         }
 
-        private bool InjectCommentRecursive(ref List<Element<Comment>> elementList, string searchingParent, Comment comment, ref int insertedPos)
+        private bool InjectCommentRecursive(ref List<Element<Comment>> elementList, string searchingParent, Comment comment, bool isEdit, ref int insertedPos)
         {
             // Search through this tear
             for(int i = 0; i < elementList.Count; i++)
@@ -179,28 +286,43 @@ namespace BaconBackend.Collectors
                 Element<Comment> element = elementList[i];
                 if (element.Data.Id.Equals(searchingParent))
                 {
-                    // We found you dad! (or mom, why not)
-
-                    // Make sure it can have children
-                    if(element.Data.Replies == null)
+                    if(isEdit)
                     {
-                        element.Data.Replies = new RootElement<Comment>();
-                        element.Data.Replies.Data = new ElementList<Comment>();
-                        element.Data.Replies.Data.Children = new List<Element<Comment>>();
+                        // Give this comment the replies of the old one.
+                        comment.Replies = element.Data.Replies;
+                        comment.CommentDepth = element.Data.CommentDepth;
+
+                        // Update the comment
+                        element.Data = comment;
+
+                        // Subtract one since we are replacing not inserting after.
+                        insertedPos--;
                     }
+                    else
+                    {
+                        // We found you dad! (or mom, why not)
 
-                    // Set the comment depth
-                    comment.CommentDepth = element.Data.CommentDepth + 1;
+                        // Make sure it can have children
+                        if (element.Data.Replies == null)
+                        {
+                            element.Data.Replies = new RootElement<Comment>();
+                            element.Data.Replies.Data = new ElementList<Comment>();
+                            element.Data.Replies.Data.Children = new List<Element<Comment>>();
+                        }
 
-                    // Add it!
-                    element.Data.Replies.Data.Children.Insert(0, new Element<Comment>() { Data = comment, Kind = "t1" });
+                        // Set the comment depth
+                        comment.CommentDepth = element.Data.CommentDepth + 1;
+
+                        // Add it!
+                        element.Data.Replies.Data.Children.Insert(0, new Element<Comment>() { Data = comment, Kind = "t1" });
+                    }
 
                     // Return success!
                     return true;
                 }
 
                 // If no match ask his kids.
-                if (element.Data.Replies != null && InjectCommentRecursive(ref element.Data.Replies.Data.Children, searchingParent, comment, ref insertedPos))
+                if (element.Data.Replies != null && InjectCommentRecursive(ref element.Data.Replies.Data.Children, searchingParent, comment, isEdit, ref insertedPos))
                 {
                     return true;
                 }
@@ -237,31 +359,28 @@ namespace BaconBackend.Collectors
             }
 
             // Update the like status
-            if (action == PostVoteAction.UpVote)
+            bool likesAction = action == PostVoteAction.UpVote;
+            int voteMultiplier = action == PostVoteAction.UpVote ? 1 : -1;
+            if(collectionComment.Likes.HasValue)
             {
-                if (collectionComment.Likes.HasValue && collectionComment.Likes.Value)
+                if(collectionComment.Likes.Value == likesAction)
                 {
+                    // duplicate vote would undo the action
                     collectionComment.Likes = null;
-                    collectionComment.Score--;
+                    collectionComment.Score -= voteMultiplier;
                 }
                 else
                 {
-                    collectionComment.Likes = true;
-                    collectionComment.Score++;
+                    // opposite vote, takes into account previous vote
+                    collectionComment.Likes = likesAction;
+                    collectionComment.Score += 2 * voteMultiplier;
                 }
             }
             else
             {
-                if (collectionComment.Likes.HasValue && !collectionComment.Likes.Value)
-                {
-                    collectionComment.Likes = null;
-                    collectionComment.Score++;
-                }
-                else
-                {
-                    collectionComment.Likes = false;
-                    collectionComment.Score--;
-                }
+                // first vote
+                collectionComment.Likes = likesAction;
+                collectionComment.Score += voteMultiplier;
             }
 
             // Fire off that a update happened.
@@ -279,7 +398,7 @@ namespace BaconBackend.Collectors
                     postData.Add(new KeyValuePair<string, string>("dir", voteDir));
 
                     // Make the call
-                    string str = await m_baconMan.NetworkMan.MakeRedditPostRequest("api/vote", postData);
+                    string str = await m_baconMan.NetworkMan.MakeRedditPostRequestAsString("api/vote", postData);
 
                     // Do some super simple validation
                     if (str != "{}")
@@ -296,56 +415,94 @@ namespace BaconBackend.Collectors
         }
 
         /// <summary>
-        /// Called when the user is trying to comment on something.
+        /// Called when the user added a comment or edit an existing comment.
         /// </summary>
         /// <returns></returns>
-        public bool AddNewUserComment(string jsonResponse, string redditIdCommentingOn)
+        public bool CommentAddedOrEdited(string parentOrOrgionalId, string serverResponse, bool isEdit)
         {
-            try
+            // Assume if we can find author we are successful. Not sure if that is safe or not... :)
+            if (!String.IsNullOrWhiteSpace(serverResponse) && serverResponse.Contains("\"author\""))
             {
-                // Assume if we can find author we are successful. Not sure if that is safe or not... :)
-                if(jsonResponse.Contains("\"author\""))
+                // Do the next part in a try catch so if we fail we will still report success since the
+                // message was sent to reddit.
+                try
                 {
-                    // Do the next part in a try catch so if we fail we will still report success since the
-                    // message was sent to reddit.
-                    try
+                    // Try to parse out the new comment
+                    int dataPos = serverResponse.IndexOf("\"data\":");
+                    int dataStartPos = serverResponse.IndexOf('{', dataPos + 7);
+                    int dataEndPos = serverResponse.IndexOf("}", dataStartPos);
+                    string commentData = serverResponse.Substring(dataStartPos, (dataEndPos - dataStartPos + 1));
+
+                    // Parse the new comment
+                    Comment newComment = JsonConvert.DeserializeObject<Comment>(commentData);
+
+                    if (isEdit)
                     {
-                        // Try to parse out the new comment
-                        int dataPos = jsonResponse.IndexOf("\"data\":");
-                        int dataStartPos = jsonResponse.IndexOf('{', dataPos + 7);
-                        int dataEndPos = jsonResponse.IndexOf("}", dataStartPos);
-                        string commentData = jsonResponse.Substring(dataStartPos, (dataEndPos - dataStartPos +1));
-
-                        // Parse the new comment
-                        Comment newComment = JsonConvert.DeserializeObject<Comment>(commentData);
-
+                        UpdateComment(newComment);
+                    }
+                    else
+                    {
                         // Inject the new comment
-                        InjectComment(redditIdCommentingOn, newComment);
-                    }
-                    catch(Exception e)
-                    {
-                        // We fucked up adding the comment to the UI.
-                        m_baconMan.MessageMan.DebugDia("Failed injecting comment", e);
-                        m_baconMan.TelemetryMan.ReportUnExpectedEvent(this, "AddCommentSuccessButAddUiFailed");
+                        InjectComment(parentOrOrgionalId, newComment);
                     }
                 }
-                else
+                catch (Exception e)
                 {
-                    // Reddit returned something wrong
-                    m_baconMan.MessageMan.ShowMessageSimple("That's not right", "Sorry we can't post your comment right now, reddit returned and unexpected message.");
-                    m_baconMan.TelemetryMan.ReportUnExpectedEvent(this, "CommentPostReturnedUnexpectedMessage");
-                    return false;
+                    // We fucked up adding the comment to the UI.
+                    m_baconMan.MessageMan.DebugDia("Failed injecting comment", e);
+                    m_baconMan.TelemetryMan.ReportUnexpectedEvent(this, "AddCommentSuccessButAddUiFailed");
                 }
+
+                // If we get to adding to the UI return true because reddit has the comment.
+                return true;
             }
-            catch (Exception e)
+            else
             {
-                // Networking fail
-                m_baconMan.MessageMan.ShowMessageSimple("That's not right", "Sorry we can't post your comment right now, we can't seem to make a network connection.");
-                m_baconMan.MessageMan.DebugDia("failed to send comment", e);
-                m_baconMan.TelemetryMan.ReportUnExpectedEvent(this, "FailedToSendComment");
+                // Reddit returned something wrong
+                m_baconMan.MessageMan.ShowMessageSimple("That's not right", "Sorry we can't post your comment right now, reddit returned and unexpected message.");
+                m_baconMan.TelemetryMan.ReportUnexpectedEvent(this, "CommentPostReturnedUnexpectedMessage");
                 return false;
             }
-            return true;
+        }   
+        
+        /// <summary>
+        /// Called when a comment should be deleted
+        /// </summary>
+        /// <param name="commentId"></param>
+        public void CommentDeleteRequest(Comment comment)
+        {
+            // Start a task to delete the comment
+            new Task(async () =>
+            {
+                try
+                {
+                    // Build the data
+                    List<KeyValuePair<string, string>> postData = new List<KeyValuePair<string, string>>();
+                    postData.Add(new KeyValuePair<string, string>("id", "t1_" + comment.Id));
+
+                    // Make the call
+                    string str = await m_baconMan.NetworkMan.MakeRedditPostRequestAsString("/api/del", postData);
+
+                    // Do some super simple validation
+                    if (str != "{}")
+                    {
+                        throw new Exception("Failed to delete comment! The response indicated a failure");
+                    }
+
+                    // If successful, mark it as deleted in the UI.
+                    await CoreApplication.MainView.CoreWindow.Dispatcher.RunAsync(CoreDispatcherPriority.Low, () =>
+                    {
+                        comment.Body = "[deleted]";
+                        comment.IsDeleted = true;
+                        UpdateComment(comment);
+                    });
+                }
+                catch (Exception ex)
+                {
+                    m_baconMan.MessageMan.DebugDia("failed to vote!", ex);
+                    m_baconMan.MessageMan.ShowMessageSimple("That's Not Right", "Something went wrong while trying to delete your comment, check your internet connection.");
+                }
+            }).Start();
         }
 
         #endregion
@@ -377,5 +534,24 @@ namespace BaconBackend.Collectors
             comments = null;
         }
 
+        private string ConvertSortToUrl(CommentSortTypes types)
+        {
+            switch (types)
+            {
+                default:
+                case CommentSortTypes.Best:
+                    return "confidence";
+                case CommentSortTypes.Controversial:
+                    return "controversial";
+                case CommentSortTypes.New:
+                    return "new";
+                case CommentSortTypes.Old:
+                    return "old";
+                case CommentSortTypes.QA:
+                    return "qa";
+                case CommentSortTypes.Top:
+                    return "top";
+            }
+        }
     }
 }

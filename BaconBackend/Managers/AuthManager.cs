@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.Security.Authentication.Web;
+using Windows.Web.Http;
 
 namespace BaconBackend.Managers
 {
@@ -124,8 +125,8 @@ namespace BaconBackend.Managers
                     // Try to refresh
                     try
                     {
-                        await RefreshAccessToken(AccessTokenData.RefreshToken, true);
-                        m_tokenRefreshFailed = false;
+                        AccessTokenResult result = await RefreshAccessToken(AccessTokenData.RefreshToken, true);
+                        m_tokenRefreshFailed = result == null;
                     }
                     catch (Exception e)
                     {
@@ -225,7 +226,7 @@ namespace BaconBackend.Managers
                     }
 
                     // Check the code
-                    if(code == "")
+                    if(String.IsNullOrWhiteSpace(code))
                     {
                         return new UserManager.SignInResult()
                         {
@@ -284,7 +285,8 @@ namespace BaconBackend.Managers
                 // Create the auth header
                 var byteArray = Encoding.UTF8.GetBytes(BACONIT_APP_ID+":");
                 var base64String = "Basic " + Convert.ToBase64String(byteArray);
-                string responseString = await m_baconMan.NetworkMan.MakePostRequest(accessTokenRequest, postData, base64String);
+                IHttpContent response = await m_baconMan.NetworkMan.MakePostRequest(accessTokenRequest, postData, base64String);
+                string responseString = await response.ReadAsStringAsync();
 
                 // Parse the response.
                 return JsonConvert.DeserializeObject<AccessTokenResult>(responseString);

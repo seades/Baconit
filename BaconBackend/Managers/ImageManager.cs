@@ -38,6 +38,11 @@ namespace BaconBackend.Managers
             public string ImageId = "";
 
             /// <summary>
+            /// A consumer provided context that can be anything they want it to be.
+            /// </summary>
+            public object Context;
+
+            /// <summary>
             /// Fired when the image is ready.
             /// </summary>
             public event EventHandler<ImageManagerResponseEventArgs> OnRequestComplete
@@ -316,7 +321,7 @@ namespace BaconBackend.Managers
                     }
                     catch(Exception ex)
                     {
-                        m_baconMan.TelemetryMan.ReportUnExpectedEvent(this, "FailedToSaveImageLocallyCallback", ex);
+                        m_baconMan.TelemetryMan.ReportUnexpectedEvent(this, "FailedToSaveImageLocallyCallback", ex);
                         m_baconMan.MessageMan.DebugDia("failed to save image locally in callback", ex);
                     }
                 };
@@ -324,7 +329,7 @@ namespace BaconBackend.Managers
             }
             catch (Exception e)
             {
-                m_baconMan.TelemetryMan.ReportUnExpectedEvent(this, "FailedToSaveImageLocally", e);
+                m_baconMan.TelemetryMan.ReportUnexpectedEvent(this, "FailedToSaveImageLocally", e);
                 m_baconMan.MessageMan.DebugDia("failed to save image locally", e);
             }
         }
@@ -344,6 +349,20 @@ namespace BaconBackend.Managers
             if (postUrlLower.EndsWith(".png") || postUrlLower.EndsWith(".jpg") || postUrlLower.EndsWith(".bmp"))
             {
                 return postUrl;
+            }
+
+            // We also should look for something like quinn.com/image/hotStuff.jpg?argument=arg
+            // But we must be careful not to just match anything with png or jpg in it.
+            int postOfLastSlash = postUrlLower.LastIndexOf('/');
+            if(postOfLastSlash != -1)
+            {
+                string endingStr = postUrlLower.Substring(postOfLastSlash);
+
+                // Check if we can find anything in the ending string.
+                if (postUrlLower.Contains(".png?") || postUrlLower.Contains(".jpg?") || postUrlLower.Contains(".bmp?"))
+                {
+                    return postUrl;
+                }
             }
 
             // See if it is imgur

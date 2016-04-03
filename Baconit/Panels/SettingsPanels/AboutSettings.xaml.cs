@@ -36,22 +36,46 @@ namespace Baconit.Panels.SettingsPanels
 
         public void OnNavigatingFrom()
         {
-            // Ignore
+            // Pause the snow if going
+            ui_letItSnow.AllOfTheSnowIsNowBlackSlushPlsSuspendIt();
         }
 
         public void OnPanelPulledToTop(Dictionary<string, object> arguments)
         {
-            // Ignore
+            OnNavigatingTo();
         }
 
-        public void OnNavigatingTo()
+        public async void OnNavigatingTo()
         {
+            // Set the status bar color and get the size returned. If it is not 0 use that to move the
+            // color of the page into the status bar.
+            double statusBarHeight = await m_host.SetStatusBar(null, 0);
+            ui_contentRoot.Margin = new Thickness(0, -statusBarHeight, 0, 0);
+            ui_contentRoot.Padding = new Thickness(0, statusBarHeight, 0, 0);
+
             Package package = Package.Current;
             PackageId packageId = package.Id;
             PackageVersion version = packageId.Version;
             ui_buildString.Text = $"Build: {version.Major}.{version.Minor}.{version.Build}.{version.Revision}";
 
             App.BaconMan.TelemetryMan.ReportEvent(this, "AboutOpened");
+
+            // Resume snow if it was going
+            ui_letItSnow.OkNowIWantMoreSnowIfItHasBeenStarted();
+        }
+
+        public void OnCleanupPanel()
+        {
+            // Ignore for now.
+        }
+
+        /// <summary>
+        /// Fired when the panel should try to reduce memory if possible. This will only be called
+        /// while the panel isn't visible.
+        /// </summary>
+        public void OnReduceMemory()
+        {
+            // Ignore for now.
         }
 
         private async void RateAndReview_Tapped(object sender, TappedRoutedEventArgs e)
@@ -93,6 +117,10 @@ namespace Baconit.Panels.SettingsPanels
 
         private void Logo_Tapped(object sender, TappedRoutedEventArgs e)
         {
+            // Start the snow
+            ui_letItSnow.MakeItSnow();
+
+            // Navigate to developer settings
             m_host.Navigate(typeof(DeveloperSettings), "DeveloperSettings");
         }
 

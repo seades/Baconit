@@ -6,10 +6,20 @@ The highest rated reddit client for Windows Phone has been rewritten from the gr
 * [Baconit Subreddit](https://www.reddit.com/r/baconit)
 * [Baconit Development Subreddit](https://www.reddit.com/r/BaconitDev)
 
-+[![Join the chat at https://gitter.im/QuinnDamerell/Baconit](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/QuinnDamerell/Baconit?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+##Screenshots
+![Desktop 1](https://github.com/QuinnDamerell/Baconit/blob/develop/Media/GitHubReadme/Desktop1.png)
+![Desktop 2](https://github.com/QuinnDamerell/Baconit/blob/develop/Media/GitHubReadme/Desktop2.png)
+![Desktop 3](https://github.com/QuinnDamerell/Baconit/blob/develop/Media/GitHubReadme/Desktop3.png)
+
+
+![Mobile 1](https://github.com/QuinnDamerell/Baconit/blob/develop/Media/GitHubReadme/Phone1.png)
+![Mobile 2](https://github.com/QuinnDamerell/Baconit/blob/develop/Media/GitHubReadme/Phone2.png)
+![Mobile 3](https://github.com/QuinnDamerell/Baconit/blob/develop/Media/GitHubReadme/Phone3.png)
 
 ## Development Community
 Our [development subreddit] (https://www.reddit.com/r/BaconitDev) is to root of all development activity. We are always excited to welcome new members with any technical skill level or technical background. The subreddit is a good place to start learning about the Baconit project and how you can contribute.
+
++[![Join developer the chat at https://gitter.im/QuinnDamerell/Baconit](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/QuinnDamerell/Baconit?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 ## Features & Bugs
 Features and bugs are discussed on the [dev subreddit] (https://www.reddit.com/r/BaconitDev), but are tracked [using git.](https://github.com/QuinnDamerell/Baconit/issues)

@@ -8,13 +8,20 @@ using System.Threading.Tasks;
 
 namespace BaconBackend.Helpers
 {
-
+    /// <summary>
+    /// Provides data for the event of having the list of trending subreddits ready.
+    /// </summary>
     public class TrendingSubsReadyEvent : EventArgs
     {
+        /// <summary>
+        /// The list of subreddits found that are trending.
+        /// </summary>
         public List<string> TrendingSubredditsDisplayNames;
     }
 
-
+    /// <summary>
+    /// A helper class to determine which subreddits are trending.
+    /// </summary>
     public class TrendingSubredditsHelper
     {
         /// <summary>
@@ -31,8 +38,12 @@ namespace BaconBackend.Helpers
         //  Private vars
         //
         BaconManager m_baconMan;
-        SubredditCollector m_collector;
+        PostCollector m_collector;
 
+        /// <summary>
+        /// Construct a new trending subreddits helper.
+        /// </summary>
+        /// <param name="baconMan">The reddit connection manager used to get the trending subreddits.</param>
         public TrendingSubredditsHelper(BaconManager baconMan)
         {
             m_baconMan = baconMan;
@@ -41,7 +52,6 @@ namespace BaconBackend.Helpers
         /// <summary>
         /// Called when we should get the trending subs
         /// </summary>
-        /// <param name="count"></param>
         public void GetTrendingSubreddits()
         {
             // Check to see if we should update.
@@ -58,7 +68,7 @@ namespace BaconBackend.Helpers
                 };
 
                 // Get the collector
-                m_collector = SubredditCollector.GetCollector(trendingSub, m_baconMan, SortTypes.New);
+                m_collector = PostCollector.GetCollector(trendingSub, m_baconMan, SortTypes.New);
                 m_collector.OnCollectionUpdated += Collector_OnCollectionUpdated;
                 m_collector.OnCollectorStateChange += Collector_OnCollectorStateChange;
 
@@ -130,7 +140,7 @@ namespace BaconBackend.Helpers
                 }
                 catch(Exception ex)
                 {
-                    m_baconMan.TelemetryMan.ReportUnExpectedEvent(this, "failedtoParseTrendingPost", ex);
+                    m_baconMan.TelemetryMan.ReportUnexpectedEvent(this, "failedtoParseTrendingPost", ex);
                     m_baconMan.MessageMan.DebugDia("failed to parse trending subs post", ex);
                 }
             }
@@ -157,7 +167,7 @@ namespace BaconBackend.Helpers
             }
             catch(Exception e)
             {
-                m_baconMan.TelemetryMan.ReportUnExpectedEvent(this, "failedToFireReadyEvent", e);
+                m_baconMan.TelemetryMan.ReportUnexpectedEvent(this, "failedToFireReadyEvent", e);
                 m_baconMan.MessageMan.DebugDia("failed to fire trending subs ready event", e);
             }
         }

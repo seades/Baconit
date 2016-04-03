@@ -1,6 +1,7 @@
 ﻿using BaconBackend.Helpers;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -12,17 +13,30 @@ using Windows.UI.Xaml.Media;
 namespace Baconit.HelperControls
 {
     /// <summary>
+    /// Indicates which way the list is scrolling.
+    /// </summary>
+    public enum ScrollDirection
+    {
+        Null, // Indicates we haven't moved enough to have a direction.
+        Up,
+        Down
+    }
+
+    /// <summary>
     /// The args class for the OnListEndDetected event.
     /// </summary>
     public class OnListEndDetected : EventArgs
     {
         public double ListScrollPercent;
         public double ListScrollTotalDistance;
+        public ScrollDirection ScrollDirection;
     }
 
     public class EndDetectingListView : ListView
     {
         ScrollBar m_listeningScrollBar = null;
+        double m_lastValue = 0;
+        double m_lastDirectionChangeValue = 0;
 
         public EndDetectingListView()
         {
@@ -66,6 +80,9 @@ namespace Baconit.HelperControls
         /// <param name="e"></param>
         private void EndDetectingListView_Loaded(object sender, Windows.UI.Xaml.RoutedEventArgs e)
         {
+            // Stop listening to the event. We only want to do this once.
+            Loaded -= EndDetectingListView_Loaded;
+
             // Get the scroll bars
             List<DependencyObject> scrollBars = new List<DependencyObject>();
             UiControlHelpers<ScrollBar>.RecursivelyFindElement(this, ref scrollBars);
@@ -100,9 +117,30 @@ namespace Baconit.HelperControls
         {
             // Calculate the percent and fire when it meets the threshold
             double scrollPercentage = m_listeningScrollBar.Value / m_listeningScrollBar.Maximum;
-            if (!m_supressEndOfListEvent && scrollPercentage > m_endOfListDetectionThreshold)
+            ScrollDirection direction = m_lastValue > m_listeningScrollBar.Value ? ScrollDirection.Up : ScrollDirection.Down;
+
+            // Detect a small changes and make them null
+            if(Math.Abs(m_lastValue - m_listeningScrollBar.Value) < 1)
             {
-                m_onListEndDetectedEvent.Raise(this, new OnListEndDetected() { ListScrollPercent = scrollPercentage, ListScrollTotalDistance = m_listeningScrollBar.Value });
+                direction = ScrollDirection.Null;
+            }
+            m_lastValue = m_listeningScrollBar.Value;
+
+            // We need to account for some play in the numbers when it comes to this, don't report a
+            // direction of up until we move up 50px from the last down position. This prevents us from
+            // jump back and forth when on a small point.
+            if (direction == ScrollDirection.Up && (m_lastDirectionChangeValue - m_lastValue) < 50)
+            {
+                direction = ScrollDirection.Null;
+            }
+            else if(direction == ScrollDirection.Down)
+            {
+                m_lastDirectionChangeValue = m_listeningScrollBar.Value;
+            }
+
+            if ((!m_supressEndOfListEvent  && scrollPercentage > m_endOfListDetectionThreshold) || m_listeningScrollBar.Value == 0)
+            {
+                m_onListEndDetectedEvent.Raise(this, new OnListEndDetected() { ListScrollPercent = scrollPercentage, ListScrollTotalDistance = m_listeningScrollBar.Value, ScrollDirection = direction });
             }
         }
     }

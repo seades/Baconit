@@ -1,4 +1,5 @@
 ﻿using BaconBackend.Helpers;
+using BaconBackend.Managers;
 using Baconit.Interfaces;
 using Baconit.Panels;
 using System;
@@ -6,10 +7,12 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
+using System.Threading.Tasks;
 using Windows.Foundation;
 using Windows.Foundation.Collections;
 using Windows.UI;
 using Windows.UI.Core;
+using Windows.UI.ViewManagement;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Controls.Primitives;
@@ -18,8 +21,6 @@ using Windows.UI.Xaml.Input;
 using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Media.Animation;
 using Windows.UI.Xaml.Navigation;
-
-// The User Control item template is documented at http://go.microsoft.com/fwlink/?LinkId=234236
 
 namespace Baconit
 {
@@ -45,12 +46,33 @@ namespace Baconit
         /// </summary>
         public const string NAV_ARGS_SUBREDDIT_NAME = "Pane.SubredditName";
         public const string NAV_ARGS_SUBREDDIT_SORT = "Pane.SubredditSort";
+        public const string NAV_ARGS_SUBREDDIT_SORT_TIME = "Pane.SubredditSortTime";
         public const string NAV_ARGS_POST_ID = "Pane.PostId";
         public const string NAV_ARGS_FORCE_POST_ID = "Pane.ForcePostId";
         public const string NAV_ARGS_FORCE_COMMENT_ID = "Pane.ForceCommentId";
         public const string NAV_ARGS_SEARCH_QUERY = "Pane.SearchQuery";
         public const string NAV_ARGS_SEARCH_SUBREDDIT_NAME = "Pane.SearchSubredditName";
         public const string NAV_ARGS_SUBMIT_POST_SUBREDDIT = "Pane.SubmitPostSubreddit";
+        public const string NAV_ARGS_USER_NAME = "Pane.UserName";
+
+        /// <summary>
+        /// The min number of pages of history pages we will keep in different memory states.
+        /// A history page is a page that is not being looked at, nor is it needed for
+        /// the base like one subreddit page and the welcome screen.
+        /// </summary>
+        const int c_veryLowMemoryHistoryPagesLimit = 12;
+        const int c_lowMemoryHistoryPagesLimit = 8;
+        const int c_mediumMemoryHistoryPagesLimit = 4;
+        const int c_highMemoryHistoryPagesLimit = 1;
+
+        // The max size the subreddit pane will be.
+        private const int MAX_PANEL_SIZE = 400;
+
+        /// <summary>
+        /// How many panel back a panel has to be before we ask it
+        /// to reduce it's memory.
+        /// </summary>
+        private const int c_numberOfHistoryPagesBeforeMemoryReduce = 2;
 
         /// <summary>
         /// Fired when the screen mode changes
@@ -62,10 +84,19 @@ namespace Baconit
         }
         SmartWeakEvent<EventHandler<OnScreenModeChangedArgs>> m_onScreenModeChanged = new SmartWeakEvent<EventHandler<OnScreenModeChangedArgs>>();
 
+        /// <summary>
+        /// Fired when the navigation is complete
+        /// </summary>
+        public event EventHandler<EventArgs> OnNavigationComplete
+        {
+            add { m_onNavigationComplete.Add(value); }
+            remove { m_onNavigationComplete.Remove(value); }
+        }
+        SmartWeakEvent<EventHandler<EventArgs>> m_onNavigationComplete = new SmartWeakEvent<EventHandler<EventArgs>>();
+
         //
         // Private Vars
         //
-        private const int MAX_PANEL_SIZE = 400;
 
         private enum State
         {
@@ -118,6 +149,7 @@ namespace Baconit
         /// </summary>
         bool m_finalNavigateHasShownMenu = false;
 
+
         public PanelManager(IMainPage main, IPanel startingPanel = null)
         {
             this.InitializeComponent();
@@ -144,6 +176,9 @@ namespace Baconit
             // Register for app suspend commands
             App.BaconMan.OnSuspending += OnSuspending;
             App.BaconMan.OnResuming += OnResuming;
+
+            // Register for memory pressure callbacks
+            App.BaconMan.MemoryMan.OnMemoryCleanUpRequest += MemoryMan_OnMemoryCleanUpRequest;
         }
 
         #region Suspend and Resume
@@ -259,41 +294,59 @@ namespace Baconit
         /// <summary>
         /// Navigates back to the previous page
         /// </summary>
-        private bool GoBack_Internal()
+        private bool? GoBack_Internal()
         {
-            IPanel leavingPanel = null;
+            StackItem leavingStackItem = null;
+            bool isPanelStillInStack = false;
             lock(m_panelStack)
             {
                 if(m_state != State.Idle)
                 {
                     // We can't do anything if we are already animating.
-                    return false;
+                    return null;
                 }
 
-                if(m_panelStack.Count <= 1)
+                if(m_panelStack.Count <= 2)
                 {
                     // We can't go back, there is nothing to go back to.
                     return false;
                 }
 
                 // Get the panel we are removing.
-                leavingPanel = m_panelStack.Last().Panel;
+                leavingStackItem = m_panelStack.Last();
 
-                // Remove the panel
-                m_panelStack.Remove(m_panelStack.Last());
+                // Remove the panel, use the index or we will remove the wrong one!
+                m_panelStack.RemoveAt(m_panelStack.Count - 1);
+
+                // Due to the pull forward logic this panel can be in the stack many times.
+                // We need to check for it.
+                foreach(StackItem item in m_panelStack)
+                {
+                    if(item.Id.Equals(leavingStackItem.Id) && item.Panel.GetType().Equals(leavingStackItem.Panel.GetType()))
+                    {
+                        isPanelStillInStack = true;
+                        break;
+                    }
+                }
 
                 // Report the new panel being shown.
                 App.BaconMan.TelemetryMan.ReportPageView(m_panelStack.Last().Panel.GetType().Name);
 
                 // Get the type of the leaving panel
-                PanelType leavingPanelType = GetPanelType(leavingPanel);
+                PanelType leavingPanelType = GetPanelType(leavingStackItem.Panel);
 
                 // Start to fade out the current panel.
                 PlayFadeAnimation(leavingPanelType, leavingPanelType, State.FadingOut);
             }
 
             // While not under lock inform the panel it is leaving.
-            FireOnNavigateFrom(leavingPanel);
+            FireOnNavigateFrom(leavingStackItem.Panel);
+
+            // If the panel isn't anywhere else in the stack kill it
+            if(!isPanelStillInStack)
+            {
+                FireOnCleanupPanel(leavingStackItem.Panel);
+            }
 
             return true;
         }
@@ -312,9 +365,25 @@ namespace Baconit
             {
                 // Call go back but this might not work, we can't go back while something else is navigating.
                 // If we can't go back right now just silently ignore the request.
-                handled = GoBack_Internal();
+                bool? wentBack = GoBack_Internal();
+
+                // If null was returned we are animating a navigation so just ignore this.
+                if(!wentBack.HasValue)
+                {
+                    handled = true;
+                }
+                // If we got true then we actually did go back.
+                else if(wentBack.Value)
+                {
+                    handled = true;
+                }
+                // If we get false we can't go back and din't go anything.
+                else
+                {
+                    handled = false;
+                }
             }
-            
+
             if(!handled)
             {
                 // If we can't go back anymore for the last back show the menu.
@@ -354,11 +423,9 @@ namespace Baconit
             // Clear this value
             m_finalNavigateHasShownMenu = false;
 
-            // Report to telemetry
-            //App.TelemetryClient.TrackPageView(panelType.Name);
-
             bool isExitingPanel = false;
             StackItem navigateFromPanel = null;
+            StackItem panelToReduceMemory = null;
             lock (m_panelStack)
             {
                 // For now we can only do one animation at a time. So if we are doing something we
@@ -442,17 +509,47 @@ namespace Baconit
                     return true;
                 }
 
-                // Forth, if the panel exist remove it from the stack
-                if(isExitingPanel)
-                {
-                    m_panelStack.Remove(navigateToPanel);
-                }
-
                 // Last, add the panel to the bottom of the list.
+                // Note if this existing the panel will be in the list twice!
                 m_panelStack.Add(navigateToPanel);
 
                 // Report the view
                 App.BaconMan.TelemetryMan.ReportPageView(navigateToPanel.Panel.GetType().Name);
+
+                // Check if there is someone we should ask to reduce memory
+                if(m_panelStack.Count > (c_numberOfHistoryPagesBeforeMemoryReduce + 1))
+                {
+                    panelToReduceMemory = m_panelStack[m_panelStack.Count - (c_numberOfHistoryPagesBeforeMemoryReduce +1)];
+
+                    // This can only happen in split mode.
+                    if(m_screenMode == ScreenMode.Split)
+                    {
+                        // We need to make sure this panel isn't visible
+                        PanelType reducePanelType = GetPanelType(panelToReduceMemory.Panel);
+                        for (int count = m_panelStack.Count - 1; count >= 0; count--)
+                        {
+                            // Find the first panel of this type and make sure it isn't this panel
+                            StackItem item = m_panelStack[count];
+                            if (GetPanelType(item.Panel) == reducePanelType)
+                            {
+                                if (item.Id.Equals(panelToReduceMemory.Id) && item.Panel.GetType() == panelToReduceMemory.Panel.GetType())
+                                {
+                                    // This is the panel thus it is visible. Just null out the var
+                                    // and leave it alone.
+                                    // #todo! There is a bug here, any panel that is cleared here will never be
+                                    // asked to reduce its memory. This isn't a huge deal, but something we might
+                                    // want to fix later. This isn't a huge problem because on mobile this will never happen
+                                    // and the memory manager will start killing pages if memory gets too high.
+                                    panelToReduceMemory = null;
+                                }
+
+                                // If the first panel we found wasn't it then this panel
+                                // isn't visible.
+                                break;
+                            }
+                        }
+                    }
+                }
 
                 // Animate the current panel out
                 PlayFadeAnimation(newPanelType, navigateFromPanelType, State.FadingOut);
@@ -462,6 +559,12 @@ namespace Baconit
             if (navigateFromPanel != null)
             {
                 FireOnNavigateFrom(navigateFromPanel.Panel);
+            }
+
+            // If we have a panel to reduce memory, ask it to.
+            if (panelToReduceMemory != null)
+            {
+                FireOnReduceMemory(panelToReduceMemory.Panel);
             }
 
             return true;
@@ -480,6 +583,7 @@ namespace Baconit
         {
             PanelType newPanelType = PanelType.None;
             IPanel newPanel = null;
+            bool fireNavCompleteAndReturn = false;
 
             // Grab a lock
             lock (m_panelStack)
@@ -489,7 +593,7 @@ namespace Baconit
                 {
                     return;
                 }
-                if (m_state == State.FadingIn)
+                else if (m_state == State.FadingIn)
                 {
                     // We are done with the fade in, go back to idle
                     m_state = State.Idle;
@@ -497,66 +601,82 @@ namespace Baconit
                     // Update the back button
                     UpdateBackButton();
 
+                    fireNavCompleteAndReturn = true;
+
                     // If we are pending a screen change do it now.
-                    if(m_deferedScreenUpdate.HasValue)
+                    if (m_deferedScreenUpdate.HasValue)
                     {
                         ExecuteOnScreenSizeChagnedLogic(m_deferedScreenUpdate.Value);
                         m_deferedScreenUpdate = null;
                     }
-                    return;
-                }
-
-                if(m_screenMode == ScreenMode.Single)
-                {
-                    // If we are in single mode we want to animate in whatever is on the top of the stack
-                    newPanel = m_panelStack.Last().Panel;
                 }
                 else
                 {
-                    // If we are in split mode we want to animate in whatever is the most recent panel for this space.
-                    // First figure out what content space this came from
-                    PanelType animationPanelType = (sender as DoubleAnimation).Equals(ui_animSubList) ? PanelType.SubredditList : PanelType.ContentPanel;
+                    // State.FadingOut
 
-                    // Now find the most recent panel for content space.
-                    foreach (StackItem item in m_panelStack.Reverse<StackItem>())
+                    if (m_screenMode == ScreenMode.Single)
                     {
-                        IPanel panel = item.Panel;
-                        // If the are both subreddit panels or both not, we found the panel.
-                        if (GetPanelType(panel) == animationPanelType)
+                        // If we are in single mode we want to animate in whatever is on the top of the stack
+                        newPanel = m_panelStack.Last().Panel;
+                    }
+                    else
+                    {
+                        // If we are in split mode we want to animate in whatever is the most recent panel for this space.
+                        // First figure out what content space this came from
+                        PanelType animationPanelType = (sender as DoubleAnimation).Equals(ui_animSubList) ? PanelType.SubredditList : PanelType.ContentPanel;
+
+                        // Now find the most recent panel for content space.
+                        foreach (StackItem item in m_panelStack.Reverse<StackItem>())
                         {
-                            newPanel = panel;
-                            break;
+                            IPanel panel = item.Panel;
+                            // If the are both subreddit panels or both not, we found the panel.
+                            if (GetPanelType(panel) == animationPanelType)
+                            {
+                                newPanel = panel;
+                                break;
+                            }
+                        }
+
+                        // If newPanel type is null we don't have anything and we should clean up and leave.
+                        if (newPanel == null)
+                        {
+                            // Set the state
+                            m_state = State.Idle;
+
+                            // Get the root
+                            Grid paneRoot = animationPanelType == PanelType.ContentPanel ? ui_contentRoot : ui_subListRoot;
+                            paneRoot.Children.Clear();
+
+                            // Update the back button
+                            UpdateBackButton();
+
+                            fireNavCompleteAndReturn = true;
                         }
                     }
 
-                    // If newPanel type is null we don't have anything and we should clean up and leave.
-                    if (newPanel == null)
+                    if (!fireNavCompleteAndReturn)
                     {
-                        // Set the state
-                        m_state = State.Idle;
+                        // Get the panel state of the top panel, this is the one we want to animate back in
+                        newPanelType = GetPanelType(newPanel);
 
-                        // Get the root
-                        Grid paneRoot = animationPanelType == PanelType.ContentPanel ? ui_contentRoot : ui_subListRoot;
-                        paneRoot.Children.Clear();
+                        // Get the correct root
+                        Grid root = newPanelType == PanelType.ContentPanel ? ui_contentRoot : ui_subListRoot;
 
-                        // Update the back button
-                        UpdateBackButton();
-                        return;
+                        // Take clear the current panel
+                        root.Children.Clear();
+                        root.Children.Add((UserControl)newPanel);
+
+                        // Update the panel sizes
+                        UpdatePanelSizes();
                     }
                 }
+            }
 
-                // Get the panel state of the top panel, this is the one we want to animate back in
-                newPanelType = GetPanelType(newPanel);
-
-                // Get the correct root
-                Grid root = newPanelType == PanelType.ContentPanel ? ui_contentRoot : ui_subListRoot;
-
-                // Take clear the current panel
-                root.Children.Clear();
-                root.Children.Add((UserControl)newPanel);
-
-                // Update the panel sizes
-                UpdatePanelSizes();
+            // Do this if needed and get out of here.
+            if(fireNavCompleteAndReturn)
+            {
+                FireOnNavigateComplete();
+                return;
             }
 
             // Inform the panel we are navigating to it.
@@ -654,7 +774,7 @@ namespace Baconit
                     newMode = ScreenMode.FullScreen;
                 }
             }
-            
+
             if (newMode != m_screenMode || forceSet)
             {
                 // If we are animating we can't update. So set the deferral and it will
@@ -807,6 +927,192 @@ namespace Baconit
 
         #endregion
 
+        #region Memory managment logic
+
+        /// <summary>
+        /// Fired when the memory manager wants some memory back. Lets see if we can help him out.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private async void MemoryMan_OnMemoryCleanUpRequest(object sender, BaconBackend.Managers.OnMemoryCleanupRequestArgs e)
+        {
+            // Memory pressure
+            //  Low - Only clean up pages that are very old and user forgot about
+            //  Medium - Clean up pages that are older and the user hopefully forgot about
+            //  High - Clean up just about everything we can.
+
+            List<IPanel> cleanupPanelList = new List<IPanel>();
+            lock (m_panelStack)
+            {
+                if (m_state != State.Idle && e.CurrentPressure != MemoryPressureStates.HighNoAllocations)
+                {
+                    // If we are not idle return unless we are high, then
+                    // we will take our chances.
+                    return;
+                }
+
+                // Figure out how many panels we need to keep.
+                int minNumHistoryPages = 0;
+                switch(e.CurrentPressure)
+                {
+                    default:
+                    case MemoryPressureStates.None:
+                    case MemoryPressureStates.VeryLow:
+                        minNumHistoryPages = c_veryLowMemoryHistoryPagesLimit;
+                        break;
+                    case MemoryPressureStates.Low:
+                        minNumHistoryPages = c_lowMemoryHistoryPagesLimit;
+                        break;
+                    case MemoryPressureStates.Medium:
+                        minNumHistoryPages = c_mediumMemoryHistoryPagesLimit;
+                        break;
+                    case MemoryPressureStates.HighNoAllocations:
+                        minNumHistoryPages = c_highMemoryHistoryPagesLimit;
+                        break;
+                }
+
+                // Do a quick check to ensure we can do work.
+                // Panel count - 4 (worse case we have 4 we have to keep) is the worse case # of history pages. (this can be (-))
+                // If that count is less then the min just return because we have nothing to do.
+                if(m_panelStack.Count - 4 < minNumHistoryPages)
+                {
+                    return;
+                }
+
+                // First find the most recent subreddit panel and the panel we are looking at.
+                // If we are in split view we will always have two, if in single view we will only have one.
+                Tuple<Type, string> currentPanel = null;
+                PanelType currentPanelPanelType = PanelType.None;
+                Tuple<Type, string> splitViewOtherCurrentPanel = null;
+                for (int count = m_panelStack.Count - 1; count > 0; count--)
+                {
+                    StackItem item = m_panelStack[count];
+
+                    // If this is first this is what we are looking at.
+                    if(currentPanel == null)
+                    {
+                        currentPanel = new Tuple<Type, string>(item.Panel.GetType(), item.Id);
+                        currentPanelPanelType = GetPanelType(item.Panel);
+
+                        // If we are in single mode we only care about the first one.
+                        if (m_screenMode == ScreenMode.Single)
+                        {
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        // If we get here we are in split view and are looking for the latest panel that is not the same type as the current panel.
+                        if (GetPanelType(item.Panel) != currentPanelPanelType)
+                        {
+                            splitViewOtherCurrentPanel = new Tuple<Type, string>(item.Panel.GetType(), item.Id);
+                            break;
+                        }
+                    }
+                }
+
+                // Check that we are good.
+                if (currentPanel == null)
+                {
+                    App.BaconMan.TelemetryMan.ReportUnexpectedEvent(this, "MemoryCleanupCurrentPanelNull");
+                    return;
+                }
+
+                // We will always keep the welcome screen, the first subreddit.
+                // We also might need to keep the two visible panels, but they might also be the same.
+                int numRequiredPages = 2;
+
+                // Now loop though all of the panels and kill them.
+                for(int count = 0; count < m_panelStack.Count; count++)
+                {
+                    StackItem item = m_panelStack[count];
+                    if((item.Panel as WelcomePanel) != null)
+                    {
+                        // This is the welcome panel, skip
+                        continue;
+                    }
+                    else if(count == 1 && (item.Panel as SubredditPanel) != null)
+                    {
+                        // If this subreddit isn't the first visible panel we have one more required page.
+                        if (!item.Id.Equals(currentPanel.Item2) || !item.Panel.GetType().Equals(currentPanel.Item1))
+                        {
+                            numRequiredPages++;
+                        }
+
+                        // If this subreddit also isn't the second visible panel we have one more required page.
+                        if (splitViewOtherCurrentPanel != null && (!item.Id.Equals(splitViewOtherCurrentPanel.Item2) || !item.Panel.GetType().Equals(splitViewOtherCurrentPanel.Item1)))
+                        {
+                            numRequiredPages++;
+                        }
+
+                        // Skip the first subreddit panel also.
+                        continue;
+                    }
+
+                    // Check if we are done, if our list is smaller than req + min history.
+                    if (m_panelStack.Count <= minNumHistoryPages + numRequiredPages)
+                    {
+                        break;
+                    }
+
+                    if (item.Id.Equals(currentPanel.Item2) && item.Panel.GetType().Equals(currentPanel.Item1))
+                    {
+                        // If this is visible panel 1 don't kill it.
+                        continue;
+                    }
+
+                    if (splitViewOtherCurrentPanel != null && item.Id.Equals(splitViewOtherCurrentPanel.Item2) && item.Panel.GetType().Equals(splitViewOtherCurrentPanel.Item1))
+                    {
+                        // If this is visible panel 2 don't kill it.
+                        continue;
+                    }
+
+                    // We found one we can kill from the list and back down the count.
+                    m_panelStack.RemoveAt(count);
+                    count--;
+
+                    // Now make sure there isn't another instance of it in the list, if so don't add
+                    // it to the clean up list.
+                    bool addToCleanUp = true;
+                    foreach(StackItem searchItem in m_panelStack)
+                    {
+                        if(item.Id.Equals(searchItem.Id) && item.Panel.GetType().Equals(searchItem.Panel.GetType()))
+                        {
+                            addToCleanUp = false;
+                            break;
+                        }
+                    }
+
+                    if(addToCleanUp)
+                    {
+                        cleanupPanelList.Add(item.Panel);
+                    }
+                }
+            }
+
+            // Now that we are out of lock, delete the panels if we have any.
+            if (cleanupPanelList.Count > 0)
+            {
+                // Keep track of how many pages have been cleaned up.
+                App.BaconMan.UiSettingsMan.PagesMemoryCleanedUp += cleanupPanelList.Count;
+
+                // Jump to the UI thread to do this.
+                await Windows.ApplicationModel.Core.CoreApplication.MainView.CoreWindow.Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+                {
+                    foreach (IPanel panel in cleanupPanelList)
+                    {
+                    // Fire cleanup on the panel
+                    FireOnCleanupPanel(panel);
+                    }
+
+                    // Also update the back button.
+                    UpdateBackButton();
+                });
+            }
+        }
+
+        #endregion
+
         /// <summary>
         /// Toggles the main side menu
         /// </summary>
@@ -832,6 +1138,22 @@ namespace Baconit
         private void UpdateBackButton()
         {
             SystemNavigationManager.GetForCurrentView().AppViewBackButtonVisibility = CanGoBack() ? AppViewBackButtonVisibility.Visible : AppViewBackButtonVisibility.Collapsed;
+        }
+
+        /// <summary>
+        /// Fires OnNavigationComplete
+        /// </summary>
+        /// <param name="panel"></param>
+        private void FireOnNavigateComplete()
+        {
+            try
+            {
+                m_onNavigationComplete.Raise(this, new EventArgs());
+            }
+            catch (Exception e)
+            {
+                App.BaconMan.MessageMan.DebugDia("OnNavigationComplete failed!", e);
+            }
         }
 
         /// <summary>
@@ -868,19 +1190,62 @@ namespace Baconit
             }
         }
 
+
+        /// <summary>
+        /// Fires OnCleanupPanel for the panel
+        /// </summary>
+        /// <param name="panel"></param>
+        private void FireOnCleanupPanel(IPanel panel)
+        {
+            try
+            {
+                // Tell the panel to clean up.
+                panel.OnCleanupPanel();
+            }
+            catch (Exception e)
+            {
+                App.BaconMan.MessageMan.DebugDia("FireOnCleanupPanel failed!", e);
+            }
+        }
+
+        /// <summary>
+        /// Fires OnReduceMemory for the panel
+        /// </summary>
+        /// <param name="panel"></param>
+        private void FireOnReduceMemory(IPanel panel)
+        {
+            try
+            {
+                // Tell the panel to reduce memory.
+                panel.OnReduceMemory();
+            }
+            catch (Exception e)
+            {
+                App.BaconMan.MessageMan.DebugDia("FireOnReduceMemory failed!", e);
+            }
+        }
+
         /// <summary>
         /// Sets the status bar color for mobile.
         /// </summary>
         /// <param name="color"></param>
-        public async void SetStatusBarColor(Color color)
+        public async Task<double> SetStatusBar(Color? color = null, double opacity = 1)
         {
-            // #todo this doesn't seem to work...
             if (Windows.Foundation.Metadata.ApiInformation.IsTypePresent("Windows.UI.ViewManagement.StatusBar"))
             {
-                var statusbar = Windows.UI.ViewManagement.StatusBar.GetForCurrentView();
-                await statusbar.ShowAsync();
-                statusbar.BackgroundColor = color;
+                StatusBar statusbar = StatusBar.GetForCurrentView();
+                if (statusbar != null)
+                {
+                    if (color.HasValue)
+                    {
+                        statusbar.BackgroundColor = color.Value;
+                    }
+                    statusbar.BackgroundOpacity = opacity;
+                    await statusbar.ShowAsync();
+                    return statusbar.OccludedRect.Height;
+                }
             }
+            return 0;
         }
     }
 }

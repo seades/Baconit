@@ -23,6 +23,25 @@ namespace BaconBackend.Managers
             ShowMessaage(content, title);
         }
 
+        public async void ShowRedditDownMessage()
+        {
+            await Windows.ApplicationModel.Core.CoreApplication.MainView.CoreWindow.Dispatcher.RunAsync(CoreDispatcherPriority.Normal, async () =>
+            {
+                try
+                {
+                    bool? showStatus = await ShowYesNoMessage("Reddit is Down", "It looks like reddit is down right now. Go outside for a while and try again in a few minutes.", "Check Reddit's Status", "Go Outside");
+                    if(showStatus.HasValue && showStatus.Value)
+                    {
+                        m_baconMan.ShowGlobalContent("http://www.redditstatus.com/");
+                    }
+                }
+                catch (Exception e)
+                {
+                    m_baconMan.TelemetryMan.ReportUnexpectedEvent(this, "FailedToShowMessage", e);
+                }
+            });
+        }
+
         public async void ShowSigninMessage(string toDoWhat)
         {
             await Windows.ApplicationModel.Core.CoreApplication.MainView.CoreWindow.Dispatcher.RunAsync(CoreDispatcherPriority.Normal, async () =>
@@ -43,7 +62,7 @@ namespace BaconBackend.Managers
             if (m_baconMan.UiSettingsMan.Developer_Debug)
             {
                 System.Diagnostics.Debug.WriteLine("Error, " + str + " Message: " + (ex == null ? "" : ex.Message));
-                ShowMessaage("DebugDia: str " + str + " \n\nMessage: " + (ex == null ? "" : ex.Message), "DebugDia");
+                ShowMessaage("DebugDia: str " + str + " \n\nMessage: " + (ex == null ? "" : ex.Message) + "\n\nCall Stack:\n"+(ex== null? "" : ex.StackTrace), "DebugDia");
             }
         }
 
@@ -64,7 +83,7 @@ namespace BaconBackend.Managers
                 }
                 catch(Exception e)
                 {
-                    m_baconMan.TelemetryMan.ReportUnExpectedEvent(this, "FailedToShowMessage",e);
+                    m_baconMan.TelemetryMan.ReportUnexpectedEvent(this, "FailedToShowMessage",e);
                 }
             });
         }

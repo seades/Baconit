@@ -2,6 +2,7 @@
 using BaconBackend.DataObjects;
 using BaconBackend.Helpers;
 using Baconit.Interfaces;
+using Baconit.Panels.FlipView;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -97,6 +98,8 @@ namespace Baconit.Panels
                 ui_searchBox.Text = (string)arguments[PanelManager.NAV_ARGS_SEARCH_QUERY];
                 Search_Tapped(null, null);
             }
+
+            OnNavigateToInternal();
         }
 
         public void OnNavigatingTo()
@@ -106,11 +109,37 @@ namespace Baconit.Panels
             {
                 ui_searchBox.Focus(FocusState.Programmatic);
             }
+
+            OnNavigateToInternal();
+        }
+
+        private async void OnNavigateToInternal()
+        {
+            // Set the status bar color and get the size returned. If it is not 0 use that to move the
+            // color of the page into the status bar.
+            double statusBarHeight = await m_panelManager.SetStatusBar(null, 0);
+            ui_contentRoot.Margin = new Thickness(0, -statusBarHeight, 0, 0);
+            ui_contentRoot.Padding = new Thickness(0, statusBarHeight, 0, 0);
         }
 
         public void OnNavigatingFrom()
         {
             // Ignore for now
+        }
+
+        public void OnCleanupPanel()
+        {
+            // Ignore for now.
+            // #todo stop any on going requests.
+        }
+
+        /// <summary>
+        /// Fired when the panel should try to reduce memory if possible. This will only be called
+        /// while the panel isn't visible.
+        /// </summary>
+        public void OnReduceMemory()
+        {
+            // Ignore for now.
         }
 
         #region Search Button UI Logic
@@ -255,7 +284,7 @@ namespace Baconit.Panels
         {
             await Windows.ApplicationModel.Core.CoreApplication.MainView.CoreWindow.Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
             {
-                if (e.State == CollectorState.Idle || e.State == CollectorState.Error)
+                if (e.State == CollectorState.Idle || e.State == CollectorState.Error || e.State == CollectorState.FullyExtended)
                 {
                     HideProgressBar(SearchResultTypes.Subreddit);
                 }
@@ -305,16 +334,10 @@ namespace Baconit.Panels
                         {
                             ResultType = SearchResultTypes.Subreddit,
                             MajorText = subreddit.Title,
-                            MinorText = subreddit.PublicDescription,
+                            MarkdownText = subreddit.PublicDescription,
                             MinorAccentText = $"/r/{subreddit.DisplayName}",
                             DataContext = subreddit
                         };
-
-                        // Hide the minor text if there isn't any
-                        if(String.IsNullOrWhiteSpace(subreddit.PublicDescription))
-                        {
-                            subredditResult.ShowMinorText = Visibility.Collapsed;
-                        }
 
                         // Add it to the list
                         m_searchResultsList.Insert(insertIndex, subredditResult);
@@ -396,7 +419,7 @@ namespace Baconit.Panels
         {
             await Windows.ApplicationModel.Core.CoreApplication.MainView.CoreWindow.Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
             {
-                if (e.State == CollectorState.Idle || e.State == CollectorState.Error)
+                if (e.State == CollectorState.Idle || e.State == CollectorState.Error || e.State == CollectorState.FullyExtended)
                 {
                     HideProgressBar(SearchResultTypes.Post);
                 }
@@ -522,7 +545,6 @@ namespace Baconit.Panels
 
         #endregion
 
-
         #region User Search Logic
 
         /// <summary>
@@ -579,6 +601,7 @@ namespace Baconit.Panels
                         ResultType = SearchResultTypes.User,
                         MajorText = userResult.Name,
                         MinorText = $"link karma {userResult.LinkKarma}; comment karma {userResult.CommentKarma}",
+                        DataContext = userResult
                     };
                     if (userResult.IsGold)
                     {
@@ -672,7 +695,7 @@ namespace Baconit.Panels
                     Dictionary<string, object> args = new Dictionary<string, object>();
                     // Send the display name.
                     args.Add(PanelManager.NAV_ARGS_SUBREDDIT_NAME, subreddit.DisplayName);
-                    m_panelManager.Navigate(typeof(SubredditPanel), subreddit.DisplayName + SortTypes.Hot, args);
+                    m_panelManager.Navigate(typeof(SubredditPanel), subreddit.DisplayName + SortTypes.Hot + SortTimeTypes.Week, args);
                 }
                 else if(tappedResult.ResultType == SearchResultTypes.Post)
                 {
@@ -683,10 +706,17 @@ namespace Baconit.Panels
                     args.Add(PanelManager.NAV_ARGS_SUBREDDIT_NAME, post.Subreddit);
                     args.Add(PanelManager.NAV_ARGS_FORCE_POST_ID, post.Id);
                     // Make sure the page id is unique
-                    m_panelManager.Navigate(typeof(FlipViewPanel), post.Subreddit + SortTypes.Hot + post.Id, args);
+                    m_panelManager.Navigate(typeof(FlipViewPanel), post.Subreddit + SortTypes.Hot + SortTimeTypes.Week + post.Id, args);
                 }
+                else if(tappedResult.ResultType == SearchResultTypes.User)
+                {
+                    User user = (User)tappedResult.DataContext;
 
-                // #todo user
+                    // Navigate to the user
+                    Dictionary<string, object> args = new Dictionary<string, object>();
+                    args.Add(PanelManager.NAV_ARGS_USER_NAME, user.Name);
+                    m_panelManager.Navigate(typeof(UserProfile), user.Name, args);
+                }
             }
 
             // Reset the list
@@ -760,5 +790,16 @@ namespace Baconit.Panels
         }
 
         #endregion
+
+        /// <summary>
+        /// Fired when a link in the content is tapped.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void MarkdownTextBlock_OnMarkdownLinkTapped(object sender, UniversalMarkdown.OnMarkdownLinkTappedArgs e)
+        {
+            // Show the link
+            App.BaconMan.ShowGlobalContent(e.Link);
+        }
     }
 }

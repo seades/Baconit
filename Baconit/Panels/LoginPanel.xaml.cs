@@ -46,8 +46,13 @@ namespace Baconit.Panels
             m_host = host;
         }
 
-        public void OnNavigatingTo()
+        public async void OnNavigatingTo()
         {
+            // Set the status bar color and get the size returned. If it is not 0 use that to move the
+            // color of the page into the status bar.
+            double statusBarHeight  = await m_host.SetStatusBar(null, 0);
+            ui_contentRoot.Margin = new Thickness(0, -statusBarHeight, 0, 0);
+
             ui_imageScrolBackground.BeginAnimation();
             m_isVisible = true;
         }
@@ -60,7 +65,21 @@ namespace Baconit.Panels
 
         public void OnPanelPulledToTop(Dictionary<string, object> arguments)
         {
-            m_isVisible = true;
+            OnNavigatingTo();
+        }
+
+        public void OnCleanupPanel()
+        {
+            // Ignore for now.
+        }
+
+        /// <summary>
+        /// Fired when the panel should try to reduce memory if possible. This will only be called
+        /// while the panel isn't visible.
+        /// </summary>
+        public void OnReduceMemory()
+        {
+            // Ignore for now.
         }
 
         private async void LoginButton_Click(object sender, RoutedEventArgs e)
@@ -98,7 +117,7 @@ namespace Baconit.Panels
                 else
                 {
                     App.BaconMan.MessageMan.ShowMessageSimple("Something Went Wrong", "We can't log you in right now, try again later.");
-                    App.BaconMan.TelemetryMan.ReportUnExpectedEvent(this, "LoginFailedUnknown");
+                    App.BaconMan.TelemetryMan.ReportUnexpectedEvent(this, "LoginFailedUnknown");
                 }
             }
         }
